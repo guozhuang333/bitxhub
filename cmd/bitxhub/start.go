@@ -11,8 +11,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/guozhuang333/bitxhub-core/agency"
+	_ "github.com/guozhuang333/off-test"
 	"github.com/meshplus/bitxhub"
-	"github.com/meshplus/bitxhub-core/agency"
 	"github.com/meshplus/bitxhub-kit/log"
 	"github.com/meshplus/bitxhub/api/gateway"
 	"github.com/meshplus/bitxhub/api/grpc"
@@ -56,6 +57,31 @@ func startCMD() cli.Command {
 }
 
 func start(ctx *cli.Context) error {
+
+	fmt.Printf("GetOffchainTransmissionConstructor 之前————————————————————————————————————————————————————————")
+
+	offChainTransmissionConstructor, err := agency.GetOffchainTransmissionConstructor("offChain_transmission")
+	if err != nil {
+		return fmt.Errorf("offchain transmission constructor not found")
+	}
+
+	fmt.Printf("GetOffchainTransmissionConstructor 之后————————————————————————————————————————————————————————")
+
+	offChainTransmissionMgr := offChainTransmissionConstructor()
+	err = offChainTransmissionMgr.Start()
+	if err != nil {
+		return fmt.Errorf("offchain transmission start 出问题了")
+	}
+
+	fmt.Printf("start 之后————————————————————————————————————————————————————————-")
+
+	vrf, err := offChainTransmissionMgr.VRF([]byte{})
+	if err != nil {
+		return fmt.Errorf("VRF函数 出问题了 : %w", err)
+	}
+
+	fmt.Printf("vrf 函数结果是 %v", vrf)
+
 	repoRoot, err := repo.PathRootWithDefault(ctx.GlobalString("repo"))
 	if err != nil {
 		return fmt.Errorf("get repo path: %w", err)
