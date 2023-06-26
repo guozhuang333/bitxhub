@@ -47,6 +47,7 @@ func TestTester(t *testing.T) {
 	suite.Run(t, &Role{api: node4})
 	suite.Run(t, &Rule{api: node3})
 	suite.Run(t, &Service{api: node4})
+	suite.Run(t, &Invoke{api: node4})
 	//suite.Run(t, &AuditAPI{api: node2})
 }
 

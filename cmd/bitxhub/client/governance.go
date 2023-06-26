@@ -490,6 +490,59 @@ func invokeBVMContract(ctx *cli.Context, contractAddr string, method string, arg
 	return receipt, nil
 }
 
+func InvokeBVMContract(ctx *cli.Context, contractAddr string, method string, args ...*pb.Arg) (*pb.Receipt, error) {
+	repoRoot, err := repo.PathRootWithDefault(ctx.GlobalString("repo"))
+	if err != nil {
+		return nil, fmt.Errorf("pathRootWithDefault error: %w", err)
+	}
+	keyPath := repo.GetKeyPath(repoRoot)
+
+	resp, err := sendTxOrView(ctx, sendTx, contractAddr, big.NewInt(0), uint64(pb.TransactionData_INVOKE), keyPath, uint64(pb.TransactionData_BVM), method, args...)
+	if err != nil {
+		return nil, fmt.Errorf("send transaction error: %s", err.Error())
+	}
+	if strings.Contains(string(resp), "error") {
+		return nil, fmt.Errorf("send transaction error: %s", string(resp))
+	}
+
+	hash := gjson.Get(string(resp), "tx_hash").String()
+
+	var data []byte
+	if err = retry.Retry(func(attempt uint) error {
+		time.Sleep(2 * time.Second)
+		data, err = getTxReceipt(ctx, hash)
+		if err != nil {
+			fmt.Printf("the tx receipt has not been received yet: %v... retry later \n", err)
+			return err
+		} else {
+			m := make(map[string]interface{})
+			if err := json.Unmarshal(data, &m); err != nil {
+				fmt.Printf("the tx receipt has not been received yet: %v... retry later \n", err)
+				return err
+			}
+			if errInfo, ok := m["error"]; ok {
+				fmt.Printf("the tx receipt has not been received yet: %v... retry later \n", errInfo.(string))
+				return fmt.Errorf(errInfo.(string))
+			}
+			return nil
+		}
+	}, strategy.Wait(500*time.Millisecond),
+	); err != nil {
+		fmt.Println("get transaction receipt error: " + err.Error())
+	}
+
+	m := &runtime.JSONPb{OrigName: true, EmitDefaults: false, EnumsAsInts: true}
+	receipt := &pb.Receipt{}
+	if err = m.Unmarshal(data, receipt); err != nil {
+		return nil, fmt.Errorf("jsonpb unmarshal receipt error: %w", err)
+	}
+
+	if !receipt.IsSuccess() {
+		return nil, fmt.Errorf(string(receipt.Ret))
+	}
+	return receipt, nil
+}
+
 func invokeBVMContractBySendView(ctx *cli.Context, contractAddr string, method string, args ...*pb.Arg) (*pb.Receipt, error) {
 	repoRoot, err := repo.PathRootWithDefault(ctx.GlobalString("repo"))
 	if err != nil {

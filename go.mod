@@ -87,4 +87,5 @@ replace github.com/karalabe/usb => github.com/karalabe/usb v0.0.2
 replace (
 	github.com/guozhuang333/bitxhub-core => ../bitxhub-core
 	github.com/guozhuang333/off-test => ../off-test
+	github.com/meshplus/bitxhub-model => ../bitxhub-model
 )

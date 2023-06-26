@@ -438,6 +438,12 @@ func (exec *BlockExecutor) registerBoltContracts() map[string]agency.Contract {
 			Address:  constant.ServiceResolverContractAddr.Address().String(),
 			Contract: &contracts.ServiceResolver{},
 		},
+		{
+			Enabled:  true,
+			Name:     "bitxhub VRF sort",
+			Address:  constant.VrfSortContractAddr.Address().String(),
+			Contract: &contracts.VrfSort{},
+		},
 	}
 
 	ContractsInfo := agency.GetRegisteredContractInfo()
