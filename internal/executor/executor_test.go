@@ -108,7 +108,7 @@ func TestNew(t *testing.T) {
 	assert.NotNil(t, executor.ibtpVerify)
 	assert.NotNil(t, executor.validationEngine)
 	assert.Equal(t, chainMeta.BlockHash, executor.currentBlockHash)
-	assert.Equal(t, chainMeta.Height, executor.CurrentHeight)
+	assert.Equal(t, chainMeta.Height, executor.currentHeight)
 }
 
 func TestGetBoltContracts(t *testing.T) {
@@ -1056,7 +1056,7 @@ func TestRollback(t *testing.T) {
 	wg.Wait()
 	done <- true
 	assert.Nil(t, exec.Stop())
-	assert.Equal(t, exec.CurrentHeight, uint64(3))
+	assert.Equal(t, exec.currentHeight, uint64(3))
 }
 
 func signForTx(txs []*pb.BxhTransaction, privKey crypto.PrivateKey, pubKey crypto.PublicKey) ([]*pb.BxhTransaction, error) {
