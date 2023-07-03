@@ -16,19 +16,6 @@ type Invoke struct {
 }
 
 func (suite *Invoke) TestInvoke() {
-	//keyPassword := "bitxhub"
-	//var api api.CoreAPI
-	//key, err := asym.RestorePrivateKey(filepath.Join("..", "scripts", "build", "node1", "key.json"), keyPassword)
-	//if err != nil {
-	//	return
-	//}
-	//bytes, err := key.Bytes()
-	//if err != nil {
-	//	return
-	//}
-	//fmt.Println(common.Bytes2Hex(bytes))
-	//address, err := key.PublicKey().Address()
-	//fmt.Println("address", address.String())
 	path1 := "./test_data/config/node1/key.json"
 	keyPath1 := filepath.Join(path1)
 	priAdmin1, err := asym.RestorePrivateKey(keyPath1, "bitxhub")

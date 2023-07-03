@@ -75,6 +75,38 @@ func (exec *BlockExecutor) GetBoltContracts() map[string]agency.Contract {
 	return exec.txsExecutor.GetBoltContracts()
 }
 
+func (exec *BlockExecutor) GetHeight() uint64 {
+	return exec.currentHeight
+}
+
+func (exec *BlockExecutor) GetLedger() *ledger.Ledger {
+	return exec.ledger
+}
+
+func (exec *BlockExecutor) GetLogger() logrus.FieldLogger {
+	return exec.logger
+}
+
+func (exec *BlockExecutor) GetConfig() repo.Config {
+	return exec.config
+}
+
+func (exec *BlockExecutor) GetValidationEngine() validator.Engine {
+	return exec.validationEngine
+}
+
+func (exec *BlockExecutor) GetEvm() *vm.EVM {
+	return exec.evm
+}
+
+func (exec *BlockExecutor) GetTxsExecutor() agency.TxsExecutor {
+	return exec.txsExecutor
+}
+
+func (exec *BlockExecutor) GetServiceCache() *sync.Map {
+	return exec.serviceCache
+}
+
 // New creates executor instance
 func New(chainLedger *ledger.Ledger, logger logrus.FieldLogger, client *appchain.Client, config *repo.Config, gasPrice *big.Int) (*BlockExecutor, error) {
 	ibtpVerify := proof.New(chainLedger, logger, config.ChainID, config.GasLimit)
