@@ -432,6 +432,10 @@ func (bxh *BitXHub) GetSoloType() bool {
 	return bxh.repo.Config.Solo
 }
 
+func (bxh *BitXHub) GetRepo() *repo.Repo {
+	return bxh.repo
+}
+
 // func (bxh *BitXHub) getSignType() {
 //	var (
 //		wg   *sync.WaitGroup

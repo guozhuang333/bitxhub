@@ -11,6 +11,7 @@ import (
 	"github.com/meshplus/bitxhub-model/constant"
 	"github.com/meshplus/bitxhub-model/pb"
 	"github.com/meshplus/bitxhub/internal/coreapi/api"
+	"github.com/meshplus/bitxhub/internal/executor"
 	"math/big"
 	_ "net/http/pprof"
 	"os"
@@ -88,6 +89,10 @@ func start(ctx *cli.Context) error {
 	if err != nil {
 		return fmt.Errorf("VRF函数 出问题了 : %w", err)
 	}
+	var Node = executor.Node{
+		Vrf: vrf,
+	}
+	executor.MyNode = Node
 
 	fmt.Printf("vrf 函数结果是 %v", vrf)
 
@@ -134,13 +139,15 @@ func start(ctx *cli.Context) error {
 
 	//生成BXH交易
 	key := repo.Key.PrivKey
+	executor.MyNode.PrivKey = key
 	address, err := key.PublicKey().Address()
 	if err != nil {
 		fmt.Println("出现错了出现错了", err)
 	}
 	s := address.String()
 	nonce := bxh.Order.GetPendingNonceByAccount(s)
-	tx, err := genBxhTx(key, nonce, constant.VrfSortContractAddr.Address(), "Sort", pb.Bytes(vrf))
+	executor.MyNode.Order = bxh.Order
+	tx, err := GenBxhTx(key, nonce, constant.VrfSortContractAddr.Address(), "Sort", pb.Bytes(vrf))
 	fmt.Println("toaddress", constant.VrfSortContractAddr.Address().String())
 	if err != nil {
 		fmt.Println("出现错了出现错了", err)
@@ -199,7 +206,7 @@ func start(ctx *cli.Context) error {
 	bxh.Jsonrpc = cbs
 	bxh.Gateway = gw
 
-	//调用合约
+	////调用合约
 	//executor := bxh.BlockExecutor
 	//
 	//invokeCtx := vm.NewContext(tx, uint64(0), nil, executor.GetHeight()+1, executor.GetLedger(), executor.GetLogger(),
@@ -249,6 +256,7 @@ func start(ctx *cli.Context) error {
 		return fmt.Errorf("start bitxhub failed: %w", err)
 	}
 
+	//调用合约
 	err = api.Broker().HandleTransaction(tx)
 	if err != nil {
 		fmt.Println("HandleTransaction出现错了出现错了", err)
@@ -363,7 +371,7 @@ func GenContractTransaction(vmType pb.TransactionData_VMType, privateKey crypto.
 	return tx, nil
 }
 
-func genBxhTx(privateKey crypto.PrivateKey, nonce uint64, address *types.Address, method string, args ...*pb.Arg) (pb.Transaction, error) {
+func GenBxhTx(privateKey crypto.PrivateKey, nonce uint64, address *types.Address, method string, args ...*pb.Arg) (pb.Transaction, error) {
 	transaction, err := GenContractTransaction(pb.TransactionData_BVM, privateKey, nonce, address, method, args...)
 	if err != nil {
 		return nil, err

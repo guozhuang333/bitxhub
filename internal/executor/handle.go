@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"github.com/meshplus/bitxhub-core/order"
+	crypto2 "github.com/meshplus/bitxhub-kit/crypto"
 	"math"
 	"math/big"
 	"sort"
@@ -53,6 +55,14 @@ type BlockWrapper struct {
 	block     *pb.Block
 	invalidTx map[int]agency.InvalidReason
 }
+
+type Node struct {
+	Vrf     []byte
+	PrivKey crypto2.PrivateKey
+	Order   order.Order
+}
+
+var MyNode Node
 
 func (exec *BlockExecutor) rollbackBlocks(newBlock *pb.Block) error {
 	var (
@@ -283,7 +293,41 @@ func (exec *BlockExecutor) processExecuteEvent(blockWrapper *BlockWrapper) *ledg
 		"count":  len(blockWrapper.block.Transactions.Transactions),
 		"elapse": time.Since(current),
 	}).Info("Executed and Persisted block")
+
+	//构建BXH交易
+	key := MyNode.PrivKey
+	address, err := key.PublicKey().Address()
+	if err != nil {
+		fmt.Println("执行模块获取私钥出现了问题", err)
+	}
+	s := address.String()
+	nonce := MyNode.Order.GetPendingNonceByAccount(s)
+	tx, err := GenBxhTx(key, nonce, constant.VrfSortContractAddr.Address(), "Search")
+
+	//调用合约
+
+	invokeCtx := vm.NewContext(tx, uint64(0), nil, exec.GetHeight()+1, exec.GetLedger(), exec.GetLogger(),
+		exec.GetConfig().EnableAudit, nil)
+
+	instance := boltvm.New(invokeCtx, exec.GetValidationEngine(), exec.GetEvm(), exec.GetTxsExecutor().GetBoltContracts())
+
+	payload := &pb.InvokePayload{
+		Method: "Search",
+		Args:   []*pb.Arg{pb.Bytes(MyNode.Vrf)},
+	}
+	input, err := payload.Marshal()
+	if err != nil {
+		_ = fmt.Errorf("执行模块payload.Marshal", err)
+	}
+
+	ret, _, err := instance.InvokeBVM(constant.VrfSortContractAddr.Address().String(), input)
+	if err != nil {
+		fmt.Println("合约调用出现错了出现错了", err)
+	}
+	fmt.Println("合约调用结果", string(ret))
+
 	exec.postLogsEvent(data.Receipts)
+
 	exec.clear()
 
 	return nil
@@ -1154,4 +1198,56 @@ func (exec *BlockExecutor) isDstChainFromBxh(to string, bxhId string) bool {
 		return true
 	}
 	return false
+}
+
+func GenContractTransaction(vmType pb.TransactionData_VMType, privateKey crypto2.PrivateKey, nonce uint64, address *types.Address, method string, args ...*pb.Arg) (pb.Transaction, error) {
+	from, err := privateKey.PublicKey().Address()
+	if err != nil {
+		return nil, err
+	}
+
+	pl := &pb.InvokePayload{
+		Method: method,
+		Args:   args[:],
+	}
+
+	data, err := pl.Marshal()
+	if err != nil {
+		return nil, err
+	}
+
+	td := &pb.TransactionData{
+		Type:    pb.TransactionData_INVOKE,
+		VmType:  vmType,
+		Payload: data,
+	}
+
+	payload, err := td.Marshal()
+	if err != nil {
+		return nil, err
+	}
+
+	tx := &pb.BxhTransaction{
+		From:      from,
+		To:        address,
+		Payload:   payload,
+		Timestamp: time.Now().UnixNano(),
+		Nonce:     nonce,
+	}
+
+	if err := tx.Sign(privateKey); err != nil {
+		return nil, fmt.Errorf("tx sign: %w", err)
+	}
+
+	tx.TransactionHash = tx.Hash()
+
+	return tx, nil
+}
+
+func GenBxhTx(privateKey crypto2.PrivateKey, nonce uint64, address *types.Address, method string, args ...*pb.Arg) (pb.Transaction, error) {
+	transaction, err := GenContractTransaction(pb.TransactionData_BVM, privateKey, nonce, address, method, args...)
+	if err != nil {
+		return nil, err
+	}
+	return transaction, err
 }
