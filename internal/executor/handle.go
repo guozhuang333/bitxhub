@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"github.com/meshplus/bitxhub-core/order"
 	crypto2 "github.com/meshplus/bitxhub-kit/crypto"
 	"math"
 	"math/big"
@@ -55,14 +54,6 @@ type BlockWrapper struct {
 	block     *pb.Block
 	invalidTx map[int]agency.InvalidReason
 }
-
-type Node struct {
-	Vrf     []byte
-	PrivKey crypto2.PrivateKey
-	Order   order.Order
-}
-
-var MyNode Node
 
 func (exec *BlockExecutor) rollbackBlocks(newBlock *pb.Block) error {
 	var (
@@ -294,37 +285,37 @@ func (exec *BlockExecutor) processExecuteEvent(blockWrapper *BlockWrapper) *ledg
 		"elapse": time.Since(current),
 	}).Info("Executed and Persisted block")
 
-	//构建BXH交易
-	key := MyNode.PrivKey
-	address, err := key.PublicKey().Address()
-	if err != nil {
-		fmt.Println("执行模块获取私钥出现了问题", err)
-	}
-	s := address.String()
-	nonce := MyNode.Order.GetPendingNonceByAccount(s)
-	tx, err := GenBxhTx(key, nonce, constant.VrfSortContractAddr.Address(), "Search")
+	////构建BXH交易
+	//key := MyNode.PrivKey
+	//address, err := key.PublicKey().Address()
+	//if err != nil {
+	//	fmt.Println("执行模块获取私钥出现了问题", err)
+	//}
+	//s := address.String()
+	//nonce := MyNode.Order.GetPendingNonceByAccount(s)
+	//tx, err := GenBxhTx(key, nonce, constant.VrfSortContractAddr.Address(), "Search")
 
-	//调用合约
-
-	invokeCtx := vm.NewContext(tx, uint64(0), nil, exec.GetHeight()+1, exec.GetLedger(), exec.GetLogger(),
-		exec.GetConfig().EnableAudit, nil)
-
-	instance := boltvm.New(invokeCtx, exec.GetValidationEngine(), exec.GetEvm(), exec.GetTxsExecutor().GetBoltContracts())
-
-	payload := &pb.InvokePayload{
-		Method: "Search",
-		Args:   []*pb.Arg{pb.Bytes(MyNode.Vrf)},
-	}
-	input, err := payload.Marshal()
-	if err != nil {
-		_ = fmt.Errorf("执行模块payload.Marshal", err)
-	}
-
-	ret, _, err := instance.InvokeBVM(constant.VrfSortContractAddr.Address().String(), input)
-	if err != nil {
-		fmt.Println("合约调用出现错了出现错了", err)
-	}
-	fmt.Println("合约调用结果", string(ret))
+	////调用合约
+	//
+	//invokeCtx := vm.NewContext(tx, uint64(0), nil, exec.GetHeight()+1, exec.GetLedger(), exec.GetLogger(),
+	//	exec.GetConfig().EnableAudit, nil)
+	//
+	//instance := boltvm.New(invokeCtx, exec.GetValidationEngine(), exec.GetEvm(), exec.GetTxsExecutor().GetBoltContracts())
+	//
+	//payload := &pb.InvokePayload{
+	//	Method: "Search",
+	//	Args:   []*pb.Arg{pb.Bytes(MyNode.Vrf)},
+	//}
+	//input, err := payload.Marshal()
+	//if err != nil {
+	//	_ = fmt.Errorf("执行模块payload.Marshal", err)
+	//}
+	//
+	//ret, _, err := instance.InvokeBVM(constant.VrfSortContractAddr.Address().String(), input)
+	//if err != nil {
+	//	fmt.Println("合约调用出现错了出现错了", err)
+	//}
+	//fmt.Println("合约调用结果", string(ret))
 
 	exec.postLogsEvent(data.Receipts)
 
