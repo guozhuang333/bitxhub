@@ -46,6 +46,7 @@ require (
 	github.com/miguelmota/go-solidity-sha3 v0.1.1
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/multiformats/go-multiaddr v0.3.1
+	github.com/ncw/gmp v1.0.5
 	github.com/orcaman/concurrent-map v0.0.0-20210501183033-44dafcb38ecc
 	github.com/pelletier/go-toml v1.9.4
 	github.com/pkg/errors v0.9.1

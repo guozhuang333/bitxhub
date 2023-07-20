@@ -284,7 +284,7 @@ func start(ctx *cli.Context) error {
 			return err
 		}
 
-		//调用选举合约
+		//调用空选举合约
 		err = api.Broker().HandleTransaction(selectHostTX)
 		if err != nil {
 			return fmt.Errorf("调用空选举合约HandleTransaction出错", err)
@@ -303,6 +303,8 @@ func start(ctx *cli.Context) error {
 		fmt.Println("DecryptTempPri", err)
 		return err
 	}
+
+	fmt.Println("最终的临时沟通的密钥", MyNode.TempPrivKey)
 
 	wg.Wait()
 
@@ -617,6 +619,7 @@ func DecryptTempPri(BlockExecutor executor.Executor) error {
 			continue
 		}
 		bytes, err := key.Bytes()
+		MyNode.TempPrivKey = key
 		fmt.Println("解密出的临时私钥信息", bytes)
 		break
 	}
