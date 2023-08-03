@@ -24,6 +24,22 @@ func (poly Polynomial) GetNum(k int) int {
 	return ans
 }
 
+// GetGmpNum 返回GMP多项式的计算值
+func (poly Polynomial) GetGmpNum(k *gmp.Int) *gmp.Int {
+	ans := gmp.NewInt(0)
+	x := gmp.NewInt(1)
+	for i := 0; i < len(poly.coeff); i++ {
+		//temp := gmp.NewInt(poly.coeff[i].Int64())
+		temp := gmp.NewInt(0).SetBytes(poly.coeff[i].Bytes())
+		temp.Mul(temp, x)
+		ans.Add(ans, temp)
+		//ans += int(poly.coeff[i].Int64()) * x
+		//x = x * k
+		x.Mul(x, k)
+	}
+	return ans
+}
+
 // GetDegree returns the degree, ignoring removing leading zeroes
 func (poly Polynomial) GetDegree() int {
 	deg := len(poly.coeff) - 1

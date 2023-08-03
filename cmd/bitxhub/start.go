@@ -250,7 +250,7 @@ func start(ctx *cli.Context) error {
 
 	//根据合约结果判断是否成为选举节点
 	num, _ := strconv.Atoi(string(ret))
-	if num < 2 {
+	if num < 3 {
 		MyNode.IsSele = true
 	}
 	if MyNode.IsSele == true {
@@ -481,6 +481,11 @@ func GenSortTX(key crypto.PrivateKey, input []byte, nonce uint64) (pb.Transactio
 // GenSelectHostTX  生成选取秘密持有节点的交易
 func GenSelectHostTX(nonce uint64) (pb.Transaction, error) {
 	randomNumber := rand.Intn(4)
+	for i := 0; i < len(MyNode.PubKeys); i++ {
+		if MyNode.PubKeys[i] == MyNode.PrivKey.PublicKey() {
+			randomNumber = 3 - i
+		}
+	}
 	fmt.Printf("选择节点%d作为托管委员会成员节点", randomNumber+1)
 	privKey1, err := asym.GenerateKeyPair(crypto.Secp256k1)
 	bytes, err := privKey1.Bytes()
