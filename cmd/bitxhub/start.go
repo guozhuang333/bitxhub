@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/Rican7/retry"
 	"github.com/Rican7/retry/backoff"
@@ -80,6 +81,8 @@ type Node struct {
 	IsSele         bool
 	AllNodeAddress []*repo.NetworkNodes
 	PubKeys        []crypto.PublicKey
+	TempPubKey     crypto.PublicKey
+	TempKeyMap     map[string][]byte
 }
 
 var Nonce uint64
@@ -160,7 +163,7 @@ func start(ctx *cli.Context) error {
 	address, err := MyNode.PrivKey.PublicKey().Address()
 	fmt.Println("自己节点的公钥地址", address)
 
-	//生成排序交易
+	//------------------------------------------生成排序交易---------------------------------------------
 	tx, err := GenSortTX(repo.Key.PrivKey, vrf, Nonce)
 	Nonce++
 	if err != nil {
@@ -229,7 +232,7 @@ func start(ctx *cli.Context) error {
 		return fmt.Errorf("start bitxhub failed: %w", err)
 	}
 
-	//调用排序合约
+	//--------------------------------------------------调用排序合约-------------------------------------------
 	err = api.Broker().HandleTransaction(tx)
 	if err != nil {
 		return fmt.Errorf("调用排序合约HandleTransaction出错", err)
@@ -248,7 +251,7 @@ func start(ctx *cli.Context) error {
 	}
 	//fmt.Println("合约调用结果", string(ret))
 
-	//根据合约结果判断是否成为选举节点
+	//--------------------------------根据合约结果判断是否成为选举节点-----------------------------
 	num, _ := strconv.Atoi(string(ret))
 	if num < 3 {
 		MyNode.IsSele = true
@@ -259,6 +262,7 @@ func start(ctx *cli.Context) error {
 	MyNode.AllNodeAddress = repo.NetworkConfig.Nodes
 
 	if MyNode.IsSele {
+		//-------------------------如果是选举节点，选取一个节点作为秘密持有节点--------------------------
 		selectHostTX, err := GenSelectHostTX(Nonce)
 		Nonce++
 		if err != nil {
@@ -298,13 +302,72 @@ func start(ctx *cli.Context) error {
 		logger.Logger.Println("收到回执", string(receipt.Ret))
 	}
 
+	if MyNode.IsSele {
+		//-------------------------如果是选举节点，上传临时私钥对应的公钥，生成临时keyMap--------------------------
+		mapTX, err := GenKeyMapTX(Nonce)
+		Nonce++
+		if err != nil {
+			return err
+		}
+		//调用收集合约
+		err = api.Broker().HandleTransaction(mapTX)
+		if err != nil {
+			return fmt.Errorf("调用收集合约出错HandleTransaction", err)
+		}
+
+		receipt, err = sendTransactionWithReceipt(api, mapTX)
+		if err != nil {
+			return fmt.Errorf("调用收集合约sendTransactionWithReceipt出错", err)
+		}
+
+		logger.Logger.Println("收到上传keymap回执", string(receipt.Ret))
+
+	} else {
+		mapTX, err := GenEmptyKeyMapTX(Nonce)
+		Nonce++
+		if err != nil {
+			return err
+		}
+
+		//调用空上传合约
+		err = api.Broker().HandleTransaction(mapTX)
+		if err != nil {
+			return fmt.Errorf("调用空上传合约HandleTransaction出错", err)
+		}
+
+		receipt, err = sendTransactionWithReceipt(api, mapTX)
+		if err != nil {
+			return fmt.Errorf("调用空上传合约sendTransactionWithReceipt出错", err)
+		}
+
+		logger.Logger.Println("收到上传keymap回执", string(receipt.Ret))
+	}
+
+	//--------------------------------------解密获得临时沟通密钥-------------------------------------------------------
+
 	err = DecryptTempPri(bxh.BlockExecutor)
 	if err != nil {
 		fmt.Println("DecryptTempPri", err)
 		return err
 	}
-
 	fmt.Println("最终的临时沟通的密钥", MyNode.TempPrivKey)
+
+	//--------------------------------------------------获取到keyMap-------------------------------------------------
+	mapTX, err := GenEmptyKeyMapTX(Nonce)
+	Nonce++
+	ret, err = InvokeGetKeyMapContract(bxh.BlockExecutor, mapTX)
+	if err != nil {
+		return err
+	}
+	fmt.Println("获取到到keymap到json后到byte", ret)
+	m := make(map[string][]byte)
+	err = json.Unmarshal(ret, &m)
+	if err != nil {
+		fmt.Errorf("获取keymap的json的错误", err)
+	}
+	fmt.Println("获取到到keymap到json后的结果", m)
+	fmt.Println("获取到到keymap的长度", len(m))
+	MyNode.TempKeyMap = m
 
 	wg.Wait()
 
@@ -487,12 +550,16 @@ func GenSelectHostTX(nonce uint64) (pb.Transaction, error) {
 		}
 	}
 	fmt.Printf("选择节点%d作为托管委员会成员节点", randomNumber+1)
+
+	//生成临时私钥
 	privKey1, err := asym.GenerateKeyPair(crypto.Secp256k1)
 	bytes, err := privKey1.Bytes()
 	if err != nil {
 		return nil, err
 	}
+	MyNode.TempPubKey = privKey1.PublicKey()
 	fmt.Println("生成的临时私钥信息", bytes)
+
 	//发送节点私钥构建的加密器
 	cryptor, err := txcrypto.NewSimpleCryptor(MyNode.PrivKey, getKeyMap())
 	if err != nil {
@@ -516,7 +583,7 @@ func GenSelectHostTX(nonce uint64) (pb.Transaction, error) {
 	return tx, err
 }
 
-// GenEmptySelectHostTX 生成选取秘密持有节点的交易
+// GenEmptySelectHostTX 生成选取秘密持有节点的空的交易
 func GenEmptySelectHostTX(nonce uint64) (pb.Transaction, error) {
 	add, _ := MyNode.PrivKey.PublicKey().Address()
 	addSelf := add.Address
@@ -535,6 +602,32 @@ func GenVerifyHostTX(nonce uint64) (pb.Transaction, error) {
 	tx, err := GenBxhTx(MyNode.PrivKey, nonce, constant.SelectHostContractAddr.Address(), "Select", pb.String(addSelf))
 	if err != nil {
 		fmt.Println("GenSelectHostTX出现错了出现错了", err)
+	}
+	return tx, err
+}
+
+// GenKeyMapTX 上传临时会话公钥和byte形成临时密钥的keymap
+func GenKeyMapTX(nonce uint64) (pb.Transaction, error) {
+	key := MyNode.PrivKey
+	Byte, _ := MyNode.TempPubKey.Bytes()
+	Address, err := MyNode.TempPubKey.Address()
+	if err != nil {
+		return nil, err
+	}
+	address := Address.String()
+	tx, err := GenBxhTx(key, nonce, constant.TempKeyMapContractAddr.Address(), "Set", pb.Bytes(Byte), pb.String(address))
+	if err != nil {
+		fmt.Println("GenKeyMapTX出现错了出现错了", err)
+	}
+	return tx, err
+}
+
+// GenEmptyKeyMapTX 上传临时会话公钥和byte形成临时密钥的keymap
+func GenEmptyKeyMapTX(nonce uint64) (pb.Transaction, error) {
+	key := MyNode.PrivKey
+	tx, err := GenBxhTx(key, nonce, constant.TempKeyMapContractAddr.Address(), "Set", pb.Bytes(nil), pb.String(""))
+	if err != nil {
+		fmt.Println("GenKeyMapTX出现错了出现错了", err)
 	}
 	return tx, err
 }
@@ -581,6 +674,30 @@ func InvokeVerifyContract(executor executor.Executor, tx pb.Transaction, addr st
 	}
 
 	ret, _, err := instance.InvokeBVM(constant.SelectHostContractAddr.Address().String(), input)
+	return ret, err
+}
+
+// InvokeGetKeyMapContract 不发交易调用获取keyMap合约
+func InvokeGetKeyMapContract(executor executor.Executor, tx pb.Transaction) ([]byte, error) {
+
+	invokeCtx := vm.NewContext(tx, uint64(0), nil, executor.GetHeight()+1, executor.GetLedger(), executor.GetLogger(),
+		executor.GetConfig().EnableAudit, nil)
+
+	instance := boltvm.New(invokeCtx, executor.GetValidationEngine(), executor.GetEvm(), executor.GetTxsExecutor().GetBoltContracts())
+
+	payload := &pb.InvokePayload{
+		Method: "Get",
+		Args:   []*pb.Arg{},
+	}
+	input, err := payload.Marshal()
+	if err != nil {
+		return nil, err
+	}
+
+	ret, _, err := instance.InvokeBVM(constant.TempKeyMapContractAddr.Address().String(), input)
+	if err != nil {
+		fmt.Println("合约调用出现错了出现错了", err)
+	}
 	return ret, err
 }
 

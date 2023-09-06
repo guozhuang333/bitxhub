@@ -488,6 +488,12 @@ func (exec *BlockExecutor) registerBoltContracts() map[string]agency.Contract {
 			Address:  constant.SecretShareContractAddr.Address().String(),
 			Contract: &contracts.SecretShare{},
 		},
+		{
+			Enabled:  true,
+			Name:     "bitxhub collect tempKeyMap",
+			Address:  constant.TempKeyMapContractAddr.Address().String(),
+			Contract: &contracts.KeyMap{},
+		},
 	}
 
 	ContractsInfo := agency.GetRegisteredContractInfo()
