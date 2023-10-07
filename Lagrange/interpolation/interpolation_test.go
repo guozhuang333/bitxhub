@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/meshplus/bitxhub-kit/crypto"
-	"github.com/meshplus/bitxhub-kit/crypto/asym"
+	"github.com/meshplus/bitxhub/internal/repo"
 	"math/rand"
 	"testing"
 
@@ -138,11 +138,12 @@ func util(x int, y int) int {
 }
 
 func TestTwoDimensionalLagrange(t *testing.T) {
-	secr, err := asym.GenerateKeyPair(crypto.Secp256k1)
-	if err != nil {
-		return
-	}
-	i, err := secr.Bytes()
+	//secr, err := asym.GenerateKeyPair(crypto.Secp256k1)
+
+	path1 := "/Users/guozhuang/GolandProjects/hub/bitxhub/bitxhub/scripts/build/node1"
+	repo1, _ := repo.Load(path1, "", "", "")
+	secr := repo1.Key.PrivKey
+	i, err := repo1.Key.PrivKey.Bytes()
 	fmt.Println("生成的秘密为", i)
 	fmt.Println("秘密实际值", GmpUtil(0, 0, secr))
 
@@ -184,6 +185,8 @@ func TestTwoDimensionalLagrange(t *testing.T) {
 	b = append(b, GmpUtil(1, 1, secr))
 	b = append(b, GmpUtil(1, 2, secr))
 	b = append(b, GmpUtil(1, 3, secr))
+
+	fmt.Println("节点1的值", GmpUtil(1, 1, secr).Bytes(), GmpUtil(1, 2, secr).Bytes(), GmpUtil(1, 3, secr).Bytes())
 
 	//节点1的插值多项式
 	interpolate1, err := LagrangeInterpolate(2, a, b, p)

@@ -75,14 +75,17 @@ func startCMD() cli.Command {
 }
 
 type Node struct {
-	Vrf            []byte
-	PrivKey        crypto.PrivateKey
-	TempPrivKey    crypto.PrivateKey
-	IsSele         bool
-	AllNodeAddress []*repo.NetworkNodes
-	PubKeys        []crypto.PublicKey
-	TempPubKey     crypto.PublicKey
-	TempKeyMap     map[string][]byte
+	Vrf             []byte
+	PrivKey         crypto.PrivateKey
+	TempPrivKey     crypto.PrivateKey
+	IsSele          bool
+	AllNodeAddress  []*repo.NetworkNodes
+	PubKeys         []crypto.PublicKey
+	TempPubKey      crypto.PublicKey
+	TempKeyMap      map[string][]byte
+	index           int //自己的节点编号
+	FullShareSecret [][]byte
+	isHostPre       bool
 }
 
 var Nonce uint64
@@ -162,6 +165,13 @@ func start(ctx *cli.Context) error {
 
 	address, err := MyNode.PrivKey.PublicKey().Address()
 	fmt.Println("自己节点的公钥地址", address)
+	for i := 0; i < len(MyNode.PubKeys); i++ {
+		address1, _ := MyNode.PubKeys[i].Address()
+		if address1.String() == address.String() {
+			MyNode.index = i + 1
+			break
+		}
+	}
 
 	//------------------------------------------生成排序交易---------------------------------------------
 	tx, err := GenSortTX(repo.Key.PrivKey, vrf, Nonce)
@@ -350,6 +360,11 @@ func start(ctx *cli.Context) error {
 		fmt.Println("DecryptTempPri", err)
 		return err
 	}
+	if MyNode.TempPrivKey != nil {
+		MyNode.isHostPre = true
+	} else {
+		MyNode.isHostPre = false
+	}
 	fmt.Println("最终的临时沟通的密钥", MyNode.TempPrivKey)
 
 	//--------------------------------------------------获取到keyMap-------------------------------------------------
@@ -368,6 +383,24 @@ func start(ctx *cli.Context) error {
 	fmt.Println("获取到到keymap到json后的结果", m)
 	fmt.Println("获取到到keymap的长度", len(m))
 	MyNode.TempKeyMap = m
+
+	fmt.Println("该节点是节点", MyNode.index)
+
+	//----------------------------------------------获取自己应该持有的完整碎片----------------------------------
+
+	secretTx, err := GenGetFullShareSecret(Nonce, int64(MyNode.index))
+	Nonce++
+	ret, err = InvokeGetFullShareSecretContract(bxh.BlockExecutor, secretTx, int64(MyNode.index))
+	if err != nil {
+		return err
+	}
+	if MyNode.isHostPre {
+		fmt.Println("获取到的首次完整密钥碎片的json后到byte", ret)
+		i := make([][]byte, 3)
+		err = json.Unmarshal(ret, &i)
+		fmt.Println("获取到到密钥的结果", i)
+		MyNode.FullShareSecret = i
+	}
 
 	wg.Wait()
 
@@ -544,11 +577,12 @@ func GenSortTX(key crypto.PrivateKey, input []byte, nonce uint64) (pb.Transactio
 // GenSelectHostTX  生成选取秘密持有节点的交易
 func GenSelectHostTX(nonce uint64) (pb.Transaction, error) {
 	randomNumber := rand.Intn(4)
-	for i := 0; i < len(MyNode.PubKeys); i++ {
-		if MyNode.PubKeys[i] == MyNode.PrivKey.PublicKey() {
-			randomNumber = 3 - i
-		}
-	}
+	//for i := 0; i < len(MyNode.PubKeys); i++ {
+	//	if MyNode.PubKeys[i] == MyNode.PrivKey.PublicKey() {
+	//		randomNumber = 3 - i
+	//	}
+	//}
+	randomNumber = 4 - MyNode.index
 	fmt.Printf("选择节点%d作为托管委员会成员节点", randomNumber+1)
 
 	//生成临时私钥
@@ -588,7 +622,7 @@ func GenEmptySelectHostTX(nonce uint64) (pb.Transaction, error) {
 	add, _ := MyNode.PrivKey.PublicKey().Address()
 	addSelf := add.Address
 	fmt.Println("自己节点的公钥地址", addSelf)
-	tx, err := GenBxhTx(MyNode.PrivKey, nonce, constant.SelectHostContractAddr.Address(), "Select", pb.Bytes(nil), pb.String(addSelf))
+	tx, err := GenBxhTx(MyNode.PrivKey, nonce, constant.SelectHostContractAddr.Address(), "Select", pb.Bytes(nil), pb.String(""))
 	if err != nil {
 		fmt.Println("GenEmptySelectHostTX出现错了出现错了", err)
 	}
@@ -622,12 +656,22 @@ func GenKeyMapTX(nonce uint64) (pb.Transaction, error) {
 	return tx, err
 }
 
-// GenEmptyKeyMapTX 上传临时会话公钥和byte形成临时密钥的keymap
+// GenEmptyKeyMapTX 上传空的keymap
 func GenEmptyKeyMapTX(nonce uint64) (pb.Transaction, error) {
 	key := MyNode.PrivKey
 	tx, err := GenBxhTx(key, nonce, constant.TempKeyMapContractAddr.Address(), "Set", pb.Bytes(nil), pb.String(""))
 	if err != nil {
 		fmt.Println("GenKeyMapTX出现错了出现错了", err)
+	}
+	return tx, err
+}
+
+// GenGetFullShareSecret 生成首次获取完整密钥的交易
+func GenGetFullShareSecret(nonce uint64, index int64) (pb.Transaction, error) {
+	key := MyNode.PrivKey
+	tx, err := GenBxhTx(key, nonce, constant.SecretShareContractAddr.Address(), "GetFullSecretShare", pb.Int64(index))
+	if err != nil {
+		fmt.Println("GenGetFullShareSecret出现错了出现错了", err)
 	}
 	return tx, err
 }
@@ -697,6 +741,30 @@ func InvokeGetKeyMapContract(executor executor.Executor, tx pb.Transaction) ([]b
 	ret, _, err := instance.InvokeBVM(constant.TempKeyMapContractAddr.Address().String(), input)
 	if err != nil {
 		fmt.Println("合约调用出现错了出现错了", err)
+	}
+	return ret, err
+}
+
+// InvokeGetFullShareSecretContract  不发交易调用获取首次完整秘密合约
+func InvokeGetFullShareSecretContract(executor executor.Executor, tx pb.Transaction, index int64) ([]byte, error) {
+
+	invokeCtx := vm.NewContext(tx, uint64(0), nil, executor.GetHeight()+1, executor.GetLedger(), executor.GetLogger(),
+		executor.GetConfig().EnableAudit, nil)
+
+	instance := boltvm.New(invokeCtx, executor.GetValidationEngine(), executor.GetEvm(), executor.GetTxsExecutor().GetBoltContracts())
+
+	payload := &pb.InvokePayload{
+		Method: "GetFullSecretShare",
+		Args:   []*pb.Arg{pb.Int64(index)},
+	}
+	input, err := payload.Marshal()
+	if err != nil {
+		return nil, err
+	}
+
+	ret, _, err := instance.InvokeBVM(constant.SecretShareContractAddr.Address().String(), input)
+	if err != nil {
+		fmt.Println("InvokeGetFullShareSecretMapContract合约调用出现错了出现错了", err)
 	}
 	return ret, err
 }
