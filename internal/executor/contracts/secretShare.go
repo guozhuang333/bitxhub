@@ -2,6 +2,7 @@ package contracts
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/meshplus/bitxhub-core/boltvm"
 	"github.com/meshplus/bitxhub-kit/crypto"
 	"github.com/meshplus/bitxhub/internal/repo"
@@ -10,7 +11,8 @@ import (
 
 type SecretShare struct {
 	boltvm.Stub
-	secret crypto.PrivateKey
+	secret   crypto.PrivateKey
+	Share456 map[int64][][]byte
 }
 
 //p(x,y)=x+y^2+3*y+2xy+serc
@@ -61,5 +63,47 @@ func (t *SecretShare) GetFullSecretShare(x int64) *boltvm.Response {
 	i[1] = ret2.Bytes()
 	i[2] = ret3.Bytes()
 	marshal, _ := json.Marshal(i)
+	return boltvm.Success(marshal)
+}
+
+func (t *SecretShare) Collect456Share(i int64, b []byte) *boltvm.Response {
+	if t.Share456 == nil {
+		t.Share456 = make(map[int64][][]byte)
+	}
+	bytes := make([][]byte, 3)
+	err := json.Unmarshal(b, &bytes)
+	if err != nil {
+		return nil
+	}
+
+	//14,15,16都存在t.Share456[1]里面
+	//t.Share456[1][0]是14 t.Share456[1][1]是15 t.Share456[1][2]是16
+	//t.Share456[2][0]是24 t.Share456[2][1]是25 t.Share456[2][2]是26
+	//t.Share456[3][0]是34 t.Share456[3][1]是35 t.Share456[3][2]是36
+	t.Share456[i] = bytes
+	fmt.Println(t.Share456)
+	return boltvm.Success([]byte("456碎片上传成功"))
+}
+
+func (t *SecretShare) Get456Share(i int64) *boltvm.Response {
+	//4是4 3是5 2是6
+	bytes := make([][]byte, 5)
+
+	fmt.Println("收到请求index", i)
+
+	for j := 1; j <= 4; j++ {
+		fmt.Println("进入到的j", j, t.Share456[int64(j)])
+		if len(t.Share456[int64(j)]) > 0 {
+			fmt.Println("获取到的密钥碎片", t.Share456[int64(j)][4-i])
+			bytes[j] = t.Share456[int64(j)][4-i]
+		} else {
+			bytes[j] = nil
+		}
+	}
+	marshal, err := json.Marshal(bytes)
+	if err != nil {
+		return nil
+	}
+
 	return boltvm.Success(marshal)
 }

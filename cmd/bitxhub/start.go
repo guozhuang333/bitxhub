@@ -13,11 +13,14 @@ import (
 	"github.com/meshplus/bitxhub-kit/types"
 	"github.com/meshplus/bitxhub-model/constant"
 	"github.com/meshplus/bitxhub-model/pb"
+	"github.com/meshplus/bitxhub/Lagrange/interpolation"
+	"github.com/meshplus/bitxhub/Lagrange/polyring"
 	"github.com/meshplus/bitxhub/internal/coreapi/api"
 	"github.com/meshplus/bitxhub/internal/executor"
 	"github.com/meshplus/bitxhub/pkg/vm"
 	"github.com/meshplus/bitxhub/pkg/vm/boltvm"
 	"github.com/meshplus/bitxhub/txcrypto"
+	"github.com/ncw/gmp"
 	"math/big"
 	"math/rand"
 	_ "net/http/pprof"
@@ -75,22 +78,26 @@ func startCMD() cli.Command {
 }
 
 type Node struct {
-	Vrf             []byte
-	PrivKey         crypto.PrivateKey
-	TempPrivKey     crypto.PrivateKey
-	IsSele          bool
-	AllNodeAddress  []*repo.NetworkNodes
-	PubKeys         []crypto.PublicKey
-	TempPubKey      crypto.PublicKey
-	TempKeyMap      map[string][]byte
-	index           int //自己的节点编号
-	FullShareSecret [][]byte
-	isHostPre       bool
+	Vrf              []byte
+	PrivKey          crypto.PrivateKey
+	TempPrivKey      crypto.PrivateKey
+	IsSele           bool
+	AllNodeAddress   []*repo.NetworkNodes
+	PubKeys          []crypto.PublicKey
+	TempPubKey       crypto.PublicKey
+	TempKeyMap       map[string][]byte
+	index            int //自己的节点编号
+	FullShareSecret  [][]byte
+	FirstInterpolate polyring.Polynomial
+	HalfInterpolate  polyring.Polynomial
+	isHostPre        bool
 }
 
 var Nonce uint64
 
 var MyNode Node
+
+var p, _ = gmp.NewInt(0).SetString("57896044618658097711785492504343953926634992332820282019728792006155588075521123123", 10)
 
 func start(ctx *cli.Context) error {
 	Nonce = 0
@@ -356,6 +363,7 @@ func start(ctx *cli.Context) error {
 	//--------------------------------------解密获得临时沟通密钥-------------------------------------------------------
 
 	err = DecryptTempPri(bxh.BlockExecutor)
+
 	if err != nil {
 		fmt.Println("DecryptTempPri", err)
 		return err
@@ -368,9 +376,9 @@ func start(ctx *cli.Context) error {
 	fmt.Println("最终的临时沟通的密钥", MyNode.TempPrivKey)
 
 	//--------------------------------------------------获取到keyMap-------------------------------------------------
-	mapTX, err := GenEmptyKeyMapTX(Nonce)
-	Nonce++
-	ret, err = InvokeGetKeyMapContract(bxh.BlockExecutor, mapTX)
+	//mapTX, err := GenEmptyKeyMapTX(Nonce)
+	//Nonce++
+	ret, err = InvokeGetKeyMapContract(bxh.BlockExecutor, tx)
 	if err != nil {
 		return err
 	}
@@ -388,9 +396,9 @@ func start(ctx *cli.Context) error {
 
 	//----------------------------------------------获取自己应该持有的完整碎片----------------------------------
 
-	secretTx, err := GenGetFullShareSecret(Nonce, int64(MyNode.index))
-	Nonce++
-	ret, err = InvokeGetFullShareSecretContract(bxh.BlockExecutor, secretTx, int64(MyNode.index))
+	//secretTx, err := GenGetFullShareSecret(Nonce, int64(MyNode.index))
+	//Nonce++
+	ret, err = InvokeGetFullShareSecretContract(bxh.BlockExecutor, tx, int64(MyNode.index))
 	if err != nil {
 		return err
 	}
@@ -401,6 +409,53 @@ func start(ctx *cli.Context) error {
 		fmt.Println("获取到到密钥的结果", i)
 		MyNode.FullShareSecret = i
 	}
+
+	interpolate, err := FirstInterpolate()
+	MyNode.FirstInterpolate = interpolate
+	fmt.Println("节点1拉格朗日插值多项式", interpolate)
+
+	//----------------------------------------------------分别计算456节点的密钥碎片并上传---------------------------------------------------------
+
+	shareBytes := Cal456Share()
+	shareTx, err := GenCollect456ShareTx(Nonce, shareBytes)
+	Nonce++
+	if err != nil {
+		return err
+	}
+
+	err = api.Broker().HandleTransaction(shareTx)
+	if err != nil {
+		return fmt.Errorf("调用上传456HandleTransaction出错%v", err)
+	}
+
+	receipt, err = sendTransactionWithReceipt(api, shareTx)
+	if err != nil {
+		return fmt.Errorf("调用上传456sendTransactionWithReceipt出错%v", err)
+	}
+
+	logger.Logger.Println("收到上传456的回执", string(receipt.Ret))
+
+	////-------------------节点4为4 3为5 2为6 成为下一个委员会成员     计算一半份额的密钥碎片------------------------------------------
+
+	if MyNode.index >= 2 {
+		get456Share, err := InvokeGet456Share(bxh.BlockExecutor, tx)
+		if err != nil {
+			return err
+		}
+
+		i := make([][]byte, 5)
+		err = json.Unmarshal(get456Share, &i)
+		fmt.Println("获取到的减半的密钥碎片", i)
+		halfInterpolate, err := HalfInterpolate(i)
+		MyNode.HalfInterpolate = halfInterpolate
+		if err != nil {
+			return err
+		}
+	} else {
+		MyNode.HalfInterpolate = polyring.Polynomial{}
+	}
+
+	fmt.Println("拉格朗日插值出来的减半的多项式", MyNode.HalfInterpolate)
 
 	wg.Wait()
 
@@ -518,6 +573,77 @@ func getAdd() error {
 	MyNode.PubKeys = append(MyNode.PubKeys, repo3.Key.PrivKey.PublicKey())
 	MyNode.PubKeys = append(MyNode.PubKeys, repo4.Key.PrivKey.PublicKey())
 	return nil
+}
+
+// FirstInterpolate  第一次节点拉格朗日插值计算
+func FirstInterpolate() (polyring.Polynomial, error) {
+
+	a := make([]*gmp.Int, 0)
+	a = append(a, gmp.NewInt(1))
+	a = append(a, gmp.NewInt(2))
+	a = append(a, gmp.NewInt(3))
+
+	b := make([]*gmp.Int, 0)
+	if len(MyNode.FullShareSecret) < 3 {
+		return polyring.Polynomial{}, nil
+	}
+	for i := 0; i < len(MyNode.FullShareSecret); i++ {
+		temp := gmp.NewInt(0)
+		temp.SetBytes(MyNode.FullShareSecret[i])
+		b = append(b, temp)
+	}
+	//节点1的插值多项式
+	interpolate, err := interpolation.LagrangeInterpolate(2, a, b, p)
+	if err != nil {
+		return polyring.Polynomial{}, err
+	}
+	return interpolate, nil
+
+}
+
+func HalfInterpolate(bytes [][]byte) (polyring.Polynomial, error) {
+
+	a := make([]*gmp.Int, 0)
+	for i := 1; i <= 4; i++ {
+		if len(bytes[i]) > 0 {
+			a = append(a, gmp.NewInt(int64(i)))
+		}
+	}
+
+	b := make([]*gmp.Int, 0)
+
+	for i := 1; i <= 4; i++ {
+		if len(bytes[i]) > 0 {
+			temp := gmp.NewInt(0)
+			temp.SetBytes(bytes[i])
+			b = append(b, temp)
+		}
+	}
+	//节点的一半份额的插值多项式
+	interpolate, err := interpolation.LagrangeInterpolate(1, a, b, p)
+	if err != nil {
+		return polyring.Polynomial{}, err
+	}
+	return interpolate, nil
+
+}
+
+func Cal456Share() []byte {
+	if MyNode.FirstInterpolate.GetDegree() == 0 {
+		return nil
+	}
+	NumFor4 := MyNode.FirstInterpolate.GetGmpNum(gmp.NewInt(4))
+	NumFor5 := MyNode.FirstInterpolate.GetGmpNum(gmp.NewInt(5))
+	NumFor6 := MyNode.FirstInterpolate.GetGmpNum(gmp.NewInt(6))
+	bytes := make([][]byte, 3)
+	bytes[0] = NumFor4.Bytes()
+	bytes[1] = NumFor5.Bytes()
+	bytes[2] = NumFor6.Bytes()
+
+	uploadByte, _ := json.Marshal(bytes)
+
+	return uploadByte
+
 }
 
 func GenBxhTx(privateKey crypto.PrivateKey, nonce uint64, address *types.Address, method string, args ...*pb.Arg) (pb.Transaction, error) {
@@ -676,6 +802,17 @@ func GenGetFullShareSecret(nonce uint64, index int64) (pb.Transaction, error) {
 	return tx, err
 }
 
+// GenCollect456ShareTx 生成上传456密钥碎片的交易
+func GenCollect456ShareTx(nonce uint64, bytes []byte) (pb.Transaction, error) {
+	index := MyNode.index
+	key := MyNode.PrivKey
+	tx, err := GenBxhTx(key, nonce, constant.SecretShareContractAddr.Address(), "Collect456Share", pb.Int64(int64(index)), pb.Bytes(bytes))
+	if err != nil {
+		fmt.Println("GenCollect456ShareTx出现错了出现错了", err)
+	}
+	return tx, err
+}
+
 // InvokeSearchContract 不发交易调用查询排序合约
 func InvokeSearchContract(executor executor.Executor, tx pb.Transaction, input []byte) ([]byte, error) {
 
@@ -769,6 +906,29 @@ func InvokeGetFullShareSecretContract(executor executor.Executor, tx pb.Transact
 	return ret, err
 }
 
+func InvokeGet456Share(executor executor.Executor, tx pb.Transaction) ([]byte, error) {
+
+	invokeCtx := vm.NewContext(tx, uint64(0), nil, executor.GetHeight()+1, executor.GetLedger(), executor.GetLogger(),
+		executor.GetConfig().EnableAudit, nil)
+
+	instance := boltvm.New(invokeCtx, executor.GetValidationEngine(), executor.GetEvm(), executor.GetTxsExecutor().GetBoltContracts())
+
+	payload := &pb.InvokePayload{
+		Method: "Get456Share",
+		Args:   []*pb.Arg{pb.Int64(int64(MyNode.index))},
+	}
+	input, err := payload.Marshal()
+	if err != nil {
+		return nil, err
+	}
+
+	ret, _, err := instance.InvokeBVM(constant.SecretShareContractAddr.Address().String(), input)
+	if err != nil {
+		fmt.Println("InvokeGet456Share合约调用出现错了出现错了", err)
+	}
+	return ret, err
+}
+
 func getKeyMap() map[string][]byte {
 	keyMap := make(map[string][]byte)
 	for i := 0; i < len(MyNode.PubKeys); i++ {
@@ -782,9 +942,9 @@ func getKeyMap() map[string][]byte {
 
 func DecryptTempPri(BlockExecutor executor.Executor) error {
 	//按照节点公钥的顺序调用Verify合约，获得所有选举节点发送的加密信息
+	VerifyTX, _ := GenVerifyHostTX(Nonce)
+	//Nonce++
 	for i := 0; i < len(MyNode.PubKeys); i++ {
-		VerifyTX, err := GenVerifyHostTX(Nonce)
-		Nonce++
 		t, err := MyNode.PubKeys[i].Address()
 		fmt.Println("解密时选取的地址", t.Address)
 		ret, err := InvokeVerifyContract(BlockExecutor, VerifyTX, t.Address)
