@@ -308,6 +308,9 @@ func TestTwoDimensionalLagrange(t *testing.T) {
 	b = append(b, num44)
 	b = append(b, num45)
 	b = append(b, num46)
+	fmt.Println("节点4收到的44", num44.Bytes())
+	fmt.Println("节点4收到的45", num45.Bytes())
+	fmt.Println("节点4收到的46", num46.Bytes())
 	//节点4的完整插值多项式
 	interpolate4, err := LagrangeInterpolate(2, a, b, p)
 	if err != nil {
@@ -320,6 +323,9 @@ func TestTwoDimensionalLagrange(t *testing.T) {
 	b = append(b, num54)
 	b = append(b, num55)
 	b = append(b, num56)
+	fmt.Println("节点5收到的54", num54.Bytes())
+	fmt.Println("节点5收到的55", num55.Bytes())
+	fmt.Println("节点5收到的56", num56.Bytes())
 	//节点5的完整插值多项式
 	interpolate5, err := LagrangeInterpolate(2, a, b, p)
 	if err != nil {
@@ -332,6 +338,9 @@ func TestTwoDimensionalLagrange(t *testing.T) {
 	b = append(b, num64)
 	b = append(b, num65)
 	b = append(b, num66)
+	fmt.Println("节点6收到的64", num64.Bytes())
+	fmt.Println("节点6收到的65", num65.Bytes())
+	fmt.Println("节点6收到的66", num66.Bytes())
 	//节点6的完整插值多项式
 	interpolate6, err := LagrangeInterpolate(2, a, b, p)
 	if err != nil {

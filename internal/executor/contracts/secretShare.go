@@ -11,8 +11,9 @@ import (
 
 type SecretShare struct {
 	boltvm.Stub
-	secret   crypto.PrivateKey
-	Share456 map[int64][][]byte
+	secret       crypto.PrivateKey
+	HalfShare456 map[int64][][]byte
+	Share456     map[int64][][]byte
 }
 
 //p(x,y)=x+y^2+3*y+2xy+serc
@@ -66,9 +67,9 @@ func (t *SecretShare) GetFullSecretShare(x int64) *boltvm.Response {
 	return boltvm.Success(marshal)
 }
 
-func (t *SecretShare) Collect456Share(i int64, b []byte) *boltvm.Response {
-	if t.Share456 == nil {
-		t.Share456 = make(map[int64][][]byte)
+func (t *SecretShare) Collect456HalfShare(i int64, b []byte) *boltvm.Response {
+	if t.HalfShare456 == nil {
+		t.HalfShare456 = make(map[int64][][]byte)
 	}
 	bytes := make([][]byte, 3)
 	err := json.Unmarshal(b, &bytes)
@@ -76,26 +77,26 @@ func (t *SecretShare) Collect456Share(i int64, b []byte) *boltvm.Response {
 		return nil
 	}
 
-	//14,15,16都存在t.Share456[1]里面
-	//t.Share456[1][0]是14 t.Share456[1][1]是15 t.Share456[1][2]是16
-	//t.Share456[2][0]是24 t.Share456[2][1]是25 t.Share456[2][2]是26
-	//t.Share456[3][0]是34 t.Share456[3][1]是35 t.Share456[3][2]是36
-	t.Share456[i] = bytes
-	fmt.Println(t.Share456)
-	return boltvm.Success([]byte("456碎片上传成功"))
+	//14,15,16都存在t.HalfShare456[1]里面
+	//t.HalfShare456[1][0]是14 t.HalfShare456[1][1]是15 t.HalfShare456[1][2]是16
+	//t.HalfShare456[2][0]是24 t.HalfShare456[2][1]是25 t.HalfShare456[2][2]是26
+	//t.HalfShare456[3][0]是34 t.HalfShare456[3][1]是35 t.HalfShare456[3][2]是36
+	t.HalfShare456[i] = bytes
+	//fmt.Println(t.HalfShare456)
+	return boltvm.Success([]byte("一半456碎片上传成功"))
 }
 
-func (t *SecretShare) Get456Share(i int64) *boltvm.Response {
+func (t *SecretShare) GetHalf456Share(i int64) *boltvm.Response {
 	//4是4 3是5 2是6
 	bytes := make([][]byte, 5)
 
 	fmt.Println("收到请求index", i)
 
 	for j := 1; j <= 4; j++ {
-		fmt.Println("进入到的j", j, t.Share456[int64(j)])
-		if len(t.Share456[int64(j)]) > 0 {
-			fmt.Println("获取到的密钥碎片", t.Share456[int64(j)][4-i])
-			bytes[j] = t.Share456[int64(j)][4-i]
+		//fmt.Println("进入到的j", j, t.HalfShare456[int64(j)])
+		if len(t.HalfShare456[int64(j)]) > 0 {
+			//fmt.Println("获取到的密钥碎片", t.HalfShare456[int64(j)][4-i])
+			bytes[j] = t.HalfShare456[int64(j)][4-i]
 		} else {
 			bytes[j] = nil
 		}
@@ -106,4 +107,58 @@ func (t *SecretShare) Get456Share(i int64) *boltvm.Response {
 	}
 
 	return boltvm.Success(marshal)
+}
+
+func (t *SecretShare) Collect456Share(i int64, b []byte) *boltvm.Response {
+	if t.Share456 == nil {
+		t.Share456 = make(map[int64][][]byte)
+	}
+	bytes := make([][]byte, 3)
+	err := json.Unmarshal(b, &bytes)
+	if err != nil {
+		return nil
+	}
+
+	//44,45,46都存在t.Share456[4]里面
+	//t.Share456[4][0]是44 t.Share456[4][1]是54 t.Share456[4][2]是64
+	//t.Share456[5][0]是45 t.Share456[5][1]是55 t.Share456[5][2]是65
+	//t.Share456[6][0]是46 t.Share456[6][1]是56 t.Share456[6][2]是66
+	t.Share456[i] = bytes
+	fmt.Println("完整的456share", t.Share456)
+	return boltvm.Success([]byte("恢复完整456碎片上传成功"))
+}
+
+func (t *SecretShare) Get456Share(i int64) *boltvm.Response {
+	_ = make([][]byte, 3)
+	fmt.Println("收到的请求来自节点", i)
+	fmt.Println("t.Share456[4]相应的碎片信息", t.Share456[4])
+	fmt.Println("t.Share456[4]相应的碎片长度", len(t.Share456[4]))
+	fmt.Println("t.Share456[4]相应的碎片index", i-4)
+	fmt.Println("t.Share456[4][0]相应的碎片", t.Share456[4][0])
+	fmt.Println("t.Share456[4][1]相应的碎片", t.Share456[4][1])
+	fmt.Println("t.Share456[4][2]相应的碎片", t.Share456[4][2])
+
+	fmt.Println("t.Share456[5]相应的碎片信息", t.Share456[5])
+	fmt.Println("t.Share456[5]相应的碎片长度", len(t.Share456[5]))
+	fmt.Println("t.Share456[5]相应的碎片index", i-4)
+	fmt.Println("t.Share456[5][0]相应的碎片", t.Share456[5][0])
+	fmt.Println("t.Share456[5][1]相应的碎片", t.Share456[5][1])
+	fmt.Println("t.Share456[5][2]相应的碎片", t.Share456[5][2])
+
+	fmt.Println("t.Share456[6]相应的碎片信息", t.Share456[6])
+	fmt.Println("t.Share456[6]相应的碎片长度", len(t.Share456[6]))
+	fmt.Println("t.Share456[6]相应的碎片index", i-4)
+	fmt.Println("t.Share456[6][0]相应的碎片", t.Share456[6][0])
+	fmt.Println("t.Share456[6][1]相应的碎片", t.Share456[6][1])
+	fmt.Println("t.Share456[6][2]相应的碎片", t.Share456[6][2])
+
+	//for j := 0; j < 3; j++ {
+	//	bytes[j] = t.Share456[int64(4+j)][i-4]
+	//}
+	//marshal, err := json.Marshal(bytes)
+	//if err != nil {
+	//	return nil
+	//}
+
+	return boltvm.Success(nil)
 }
