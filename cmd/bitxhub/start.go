@@ -251,10 +251,6 @@ func start(ctx *cli.Context) error {
 	}
 
 	//--------------------------------------------------调用排序合约-------------------------------------------
-	err = api.Broker().HandleTransaction(tx)
-	if err != nil {
-		return fmt.Errorf("调用排序合约HandleTransaction出错", err)
-	}
 
 	receipt, err := sendTransactionWithReceipt(api, tx)
 	if err != nil {
@@ -288,10 +284,6 @@ func start(ctx *cli.Context) error {
 		}
 
 		//调用选举合约
-		err = api.Broker().HandleTransaction(selectHostTX)
-		if err != nil {
-			return fmt.Errorf("调用选举合约HandleTransaction出错", err)
-		}
 
 		receipt, err = sendTransactionWithReceipt(api, selectHostTX)
 		if err != nil {
@@ -307,10 +299,6 @@ func start(ctx *cli.Context) error {
 		}
 
 		//调用空选举合约
-		err = api.Broker().HandleTransaction(selectHostTX)
-		if err != nil {
-			return fmt.Errorf("调用空选举合约HandleTransaction出错", err)
-		}
 
 		receipt, err = sendTransactionWithReceipt(api, selectHostTX)
 		if err != nil {
@@ -328,10 +316,6 @@ func start(ctx *cli.Context) error {
 			return err
 		}
 		//调用收集合约
-		err = api.Broker().HandleTransaction(mapTX)
-		if err != nil {
-			return fmt.Errorf("调用收集合约出错HandleTransaction", err)
-		}
 
 		receipt, err = sendTransactionWithReceipt(api, mapTX)
 		if err != nil {
@@ -348,10 +332,6 @@ func start(ctx *cli.Context) error {
 		}
 
 		//调用空上传合约
-		err = api.Broker().HandleTransaction(mapTX)
-		if err != nil {
-			return fmt.Errorf("调用空上传合约HandleTransaction出错", err)
-		}
 
 		receipt, err = sendTransactionWithReceipt(api, mapTX)
 		if err != nil {
@@ -419,17 +399,11 @@ func start(ctx *cli.Context) error {
 	fmt.Printf("节点%v拉格朗日插值多项式%v", MyNode.index, interpolate)
 
 	//----------------------------------------------------分别计算456节点的一半密钥碎片并上传---------------------------------------------------------
-
 	shareBytes := CalHalf456Share()
 	shareTx, err := GenCollectHalf456ShareTx(Nonce, shareBytes)
 	Nonce++
 	if err != nil {
 		return err
-	}
-
-	err = api.Broker().HandleTransaction(shareTx)
-	if err != nil {
-		return fmt.Errorf("调用上传一半456HandleTransaction出错%v", err)
 	}
 
 	receipt, err = sendTransactionWithReceipt(api, shareTx)
@@ -440,6 +414,8 @@ func start(ctx *cli.Context) error {
 	logger.Logger.Println("收到上传456的回执", string(receipt.Ret))
 
 	//-------------------节点4为4 3为5 2为6 成为下一个委员会成员     计算一半份额的密钥碎片------------------------------------------
+
+	InvokeGetHalf456ShareLength(bxh.BlockExecutor, tx)
 
 	if MyNode.index >= 2 {
 		getHalf456Share, err := InvokeGetHalf456Share(bxh.BlockExecutor, tx)
@@ -470,10 +446,6 @@ func start(ctx *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	err = api.Broker().HandleTransaction(collect456ShareTx)
-	if err != nil {
-		return fmt.Errorf("调用上传完整456HandleTransaction出错%v", err)
-	}
 
 	receipt, err = sendTransactionWithReceipt(api, collect456ShareTx)
 	if err != nil {
@@ -484,6 +456,8 @@ func start(ctx *cli.Context) error {
 
 	//------------------------------节点456通过拉格朗日插值分别计算自己的完整的碎片-----------------------------
 
+	InvokeGet456ShareLength(bxh.BlockExecutor, tx)
+
 	if MyNode.afterIndex <= 6 {
 		get456Share, err := InvokeGet456Share(bxh.BlockExecutor, tx)
 		if err != nil {
@@ -491,18 +465,57 @@ func start(ctx *cli.Context) error {
 		}
 		fmt.Println("获取的完整碎片-------------------------", get456Share)
 
-		//i := make([][]byte, 3)
-		//err = json.Unmarshal(get456Share, &i)
-		//fmt.Println("获取到的恢复正常份额的密钥碎片", i)
-		//interpolate456, err := Interpolate456(i)
-		//if err != nil {
-		//	return err
-		//}
-		//MyNode.AfterInterpolate = interpolate456
-		//fmt.Printf("节点%v持有的恢复完整的密钥碎片多项式%v", MyNode.afterIndex, MyNode.AfterInterpolate)
+		i := make([][]byte, 3)
+		err = json.Unmarshal(get456Share, &i)
+		fmt.Println("获取到的恢复正常份额的密钥碎片", i)
+		interpolate456, err := Interpolate456(i)
+		if err != nil {
+			return err
+		}
+		MyNode.AfterInterpolate = interpolate456
 	} else {
 		MyNode.AfterInterpolate = polyring.Polynomial{}
 	}
+
+	fmt.Printf("节点%v持有的恢复完整的密钥碎片多项式%v", MyNode.afterIndex, MyNode.AfterInterpolate)
+
+	recoveryShare := CalRecoveryShare()
+	recoveryTx, err := GenSecretRecoveryTx(Nonce, recoveryShare)
+	Nonce++
+	if err != nil {
+		return err
+	}
+
+	receipt, err = sendTransactionWithReceipt(api, recoveryTx)
+	if err != nil {
+		return fmt.Errorf("调用上传恢复完整密钥碎片的交易sendTransactionWithReceipt出错%v", err)
+	}
+
+	logger.Logger.Println("收到上传恢复完整密钥碎片的交易的回执", string(receipt.Ret))
+
+	//InvokeGetRecoverySizeLength(bxh.BlockExecutor, tx)
+	//
+	//getRecoveryShare4, err := InvokeGetRecoveryShare(4, bxh.BlockExecutor, tx)
+	//if err != nil {
+	//	return err
+	//}
+	//fmt.Println("getRecoveryShare4", getRecoveryShare4)
+	//
+	//getRecoveryShare5, err := InvokeGetRecoveryShare(5, bxh.BlockExecutor, tx)
+	//if err != nil {
+	//	return err
+	//}
+	//fmt.Println("getRecoveryShare5", getRecoveryShare5)
+	//
+	//recovery, err := InterpolateRecovery(getRecoveryShare4, getRecoveryShare5)
+	//if err != nil {
+	//	return err
+	//}
+	//
+	//lastAns := recovery.GetGmpNum(gmp.NewInt(0))
+	//
+	//lastAnsBytes := lastAns.Bytes()
+	//
 
 	wg.Wait()
 
@@ -700,6 +713,26 @@ func Interpolate456(bytes [][]byte) (polyring.Polynomial, error) {
 
 }
 
+func InterpolateRecovery(bytes4 []byte, bytes5 []byte) (polyring.Polynomial, error) {
+
+	a := make([]*gmp.Int, 0)
+	a = append(a, gmp.NewInt(4))
+	a = append(a, gmp.NewInt(5))
+	b := make([]*gmp.Int, 0)
+	b4 := gmp.NewInt(0).SetBytes(bytes4)
+	b5 := gmp.NewInt(0).SetBytes(bytes5)
+	b = append(b, b4)
+	b = append(b, b5)
+
+	//节点456的完整份额的插值多项式
+	interpolate, err := interpolation.LagrangeInterpolate(1, a, b, p)
+	if err != nil {
+		return polyring.Polynomial{}, err
+	}
+	return interpolate, nil
+
+}
+
 func CalHalf456Share() []byte {
 	if MyNode.FirstInterpolate.GetDegree() == 0 {
 		return nil
@@ -737,6 +770,14 @@ func Cal456Share() []byte {
 
 	return uploadByte
 
+}
+
+func CalRecoveryShare() []byte {
+	if MyNode.HalfInterpolate.GetDegree() == 0 {
+		return nil
+	}
+	NumFor0 := MyNode.AfterInterpolate.GetGmpNum(gmp.NewInt(0))
+	return NumFor0.Bytes()
 }
 
 func GenBxhTx(privateKey crypto.PrivateKey, nonce uint64, address *types.Address, method string, args ...*pb.Arg) (pb.Transaction, error) {
@@ -917,6 +958,17 @@ func GenCollect456ShareTx(nonce uint64, bytes []byte) (pb.Transaction, error) {
 	return tx, err
 }
 
+// GenSecretRecoveryTx 生成上传恢复完整密钥碎片的交易
+func GenSecretRecoveryTx(nonce uint64, bytes []byte) (pb.Transaction, error) {
+	index := MyNode.afterIndex
+	key := MyNode.PrivKey
+	tx, err := GenBxhTx(key, nonce, constant.SecretShareContractAddr.Address(), "CollectSecretRecoveryShare", pb.Int64(int64(index)), pb.Bytes(bytes))
+	if err != nil {
+		fmt.Println("GenCollect456ShareTx出现错了出现错了", err)
+	}
+	return tx, err
+}
+
 // InvokeSearchContract 不发交易调用查询排序合约
 func InvokeSearchContract(executor executor.Executor, tx pb.Transaction, input []byte) ([]byte, error) {
 
@@ -1055,6 +1107,110 @@ func InvokeGet456Share(executor executor.Executor, tx pb.Transaction) ([]byte, e
 		fmt.Println("InvokeGet456Share合约调用出现错了出现错了", err)
 	}
 	return ret, err
+}
+
+func InvokeGetRecoveryShare(index int64, executor executor.Executor, tx pb.Transaction) ([]byte, error) {
+
+	invokeCtx := vm.NewContext(tx, uint64(0), nil, executor.GetHeight()+1, executor.GetLedger(), executor.GetLogger(),
+		executor.GetConfig().EnableAudit, nil)
+
+	instance := boltvm.New(invokeCtx, executor.GetValidationEngine(), executor.GetEvm(), executor.GetTxsExecutor().GetBoltContracts())
+
+	payload := &pb.InvokePayload{
+		Method: "GetRecoveryShare",
+		Args:   []*pb.Arg{pb.Int64(index)},
+	}
+	input, err := payload.Marshal()
+	if err != nil {
+		return nil, err
+	}
+
+	ret, _, err := instance.InvokeBVM(constant.SecretShareContractAddr.Address().String(), input)
+	if err != nil {
+		fmt.Println("InvokeGetRecoveryShare合约调用出现错了出现错了", err)
+	}
+	return ret, err
+}
+
+func InvokeGetHalf456ShareLength(executor executor.Executor, tx pb.Transaction) {
+
+	invokeCtx := vm.NewContext(tx, uint64(0), nil, executor.GetHeight()+1, executor.GetLedger(), executor.GetLogger(),
+		executor.GetConfig().EnableAudit, nil)
+
+	instance := boltvm.New(invokeCtx, executor.GetValidationEngine(), executor.GetEvm(), executor.GetTxsExecutor().GetBoltContracts())
+
+	payload := &pb.InvokePayload{
+		Method: "GetHalf456ShareSize",
+		Args:   []*pb.Arg{},
+	}
+	input, err := payload.Marshal()
+	if err != nil {
+		return
+	}
+
+	for {
+		ret, _, err := instance.InvokeBVM(constant.SecretShareContractAddr.Address().String(), input)
+		if err != nil {
+			fmt.Println("InvokeGet456Share合约调用出现错了出现错了", err)
+		}
+		if string(ret) == "4" {
+			return
+		}
+	}
+}
+
+func InvokeGet456ShareLength(executor executor.Executor, tx pb.Transaction) {
+
+	invokeCtx := vm.NewContext(tx, uint64(0), nil, executor.GetHeight()+1, executor.GetLedger(), executor.GetLogger(),
+		executor.GetConfig().EnableAudit, nil)
+
+	instance := boltvm.New(invokeCtx, executor.GetValidationEngine(), executor.GetEvm(), executor.GetTxsExecutor().GetBoltContracts())
+
+	payload := &pb.InvokePayload{
+		Method: "Get456ShareSize",
+		Args:   []*pb.Arg{},
+	}
+	input, err := payload.Marshal()
+	if err != nil {
+		return
+	}
+
+	for {
+		ret, _, err := instance.InvokeBVM(constant.SecretShareContractAddr.Address().String(), input)
+		if err != nil {
+			fmt.Println("Get456ShareSize出现错了出现错了", err)
+		}
+		if string(ret) == "4" {
+			return
+		}
+	}
+}
+
+func InvokeGetRecoverySizeLength(executor executor.Executor, tx pb.Transaction) {
+
+	invokeCtx := vm.NewContext(tx, uint64(0), nil, executor.GetHeight()+1, executor.GetLedger(), executor.GetLogger(),
+		executor.GetConfig().EnableAudit, nil)
+
+	instance := boltvm.New(invokeCtx, executor.GetValidationEngine(), executor.GetEvm(), executor.GetTxsExecutor().GetBoltContracts())
+
+	payload := &pb.InvokePayload{
+		Method: "GetRecoverySize",
+		Args:   []*pb.Arg{},
+	}
+	input, err := payload.Marshal()
+	if err != nil {
+		return
+	}
+
+	for {
+		ret, _, err := instance.InvokeBVM(constant.SecretShareContractAddr.Address().String(), input)
+		if err != nil {
+			fmt.Println("Get456ShareSize出现错了出现错了", err)
+		}
+		if string(ret) == "4" {
+			return
+		}
+	}
 }
 
 func getKeyMap() map[string][]byte {

@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"github.com/meshplus/bitxhub-core/boltvm"
 	"github.com/meshplus/bitxhub-kit/crypto"
+	"github.com/meshplus/bitxhub/Lagrange/interpolation"
 	"github.com/meshplus/bitxhub/internal/repo"
 	"github.com/ncw/gmp"
+	"strconv"
 )
 
 type SecretShare struct {
@@ -14,6 +16,7 @@ type SecretShare struct {
 	secret       crypto.PrivateKey
 	HalfShare456 map[int64][][]byte
 	Share456     map[int64][][]byte
+	Recovery     map[int64][]byte
 }
 
 //p(x,y)=x+y^2+3*y+2xy+serc
@@ -86,11 +89,17 @@ func (t *SecretShare) Collect456HalfShare(i int64, b []byte) *boltvm.Response {
 	return boltvm.Success([]byte("一半456碎片上传成功"))
 }
 
+func (t *SecretShare) GetHalf456ShareSize() *boltvm.Response {
+	i := len(t.HalfShare456)
+	itoa := strconv.Itoa(i)
+	return boltvm.Success([]byte(itoa))
+}
+
 func (t *SecretShare) GetHalf456Share(i int64) *boltvm.Response {
 	//4是4 3是5 2是6
 	bytes := make([][]byte, 5)
 
-	fmt.Println("收到请求index", i)
+	//fmt.Println("收到请求index", i)
 
 	for j := 1; j <= 4; j++ {
 		//fmt.Println("进入到的j", j, t.HalfShare456[int64(j)])
@@ -124,41 +133,63 @@ func (t *SecretShare) Collect456Share(i int64, b []byte) *boltvm.Response {
 	//t.Share456[5][0]是45 t.Share456[5][1]是55 t.Share456[5][2]是65
 	//t.Share456[6][0]是46 t.Share456[6][1]是56 t.Share456[6][2]是66
 	t.Share456[i] = bytes
-	fmt.Println("完整的456share", t.Share456)
+	//fmt.Println("完整的456share", t.Share456)
 	return boltvm.Success([]byte("恢复完整456碎片上传成功"))
 }
 
+func (t *SecretShare) Get456ShareSize() *boltvm.Response {
+	i := len(t.Share456)
+	itoa := strconv.Itoa(i)
+	return boltvm.Success([]byte(itoa))
+}
+
 func (t *SecretShare) Get456Share(i int64) *boltvm.Response {
-	_ = make([][]byte, 3)
-	fmt.Println("收到的请求来自节点", i)
-	fmt.Println("t.Share456[4]相应的碎片信息", t.Share456[4])
-	fmt.Println("t.Share456[4]相应的碎片长度", len(t.Share456[4]))
-	fmt.Println("t.Share456[4]相应的碎片index", i-4)
-	fmt.Println("t.Share456[4][0]相应的碎片", t.Share456[4][0])
-	fmt.Println("t.Share456[4][1]相应的碎片", t.Share456[4][1])
-	fmt.Println("t.Share456[4][2]相应的碎片", t.Share456[4][2])
+	bytes := make([][]byte, 3)
+	for j := 0; j < 3; j++ {
+		bytes[j] = t.Share456[int64(4+j)][i-4]
+	}
+	marshal, err := json.Marshal(bytes)
+	if err != nil {
+		return nil
+	}
+	return boltvm.Success(marshal)
+}
 
-	fmt.Println("t.Share456[5]相应的碎片信息", t.Share456[5])
-	fmt.Println("t.Share456[5]相应的碎片长度", len(t.Share456[5]))
-	fmt.Println("t.Share456[5]相应的碎片index", i-4)
-	fmt.Println("t.Share456[5][0]相应的碎片", t.Share456[5][0])
-	fmt.Println("t.Share456[5][1]相应的碎片", t.Share456[5][1])
-	fmt.Println("t.Share456[5][2]相应的碎片", t.Share456[5][2])
+func (t *SecretShare) CollectSecretRecoveryShare(i int64, bytes []byte) *boltvm.Response {
+	if t.Recovery == nil {
+		t.Recovery = make(map[int64][]byte)
+	}
+	t.Recovery[i] = bytes
 
-	fmt.Println("t.Share456[6]相应的碎片信息", t.Share456[6])
-	fmt.Println("t.Share456[6]相应的碎片长度", len(t.Share456[6]))
-	fmt.Println("t.Share456[6]相应的碎片index", i-4)
-	fmt.Println("t.Share456[6][0]相应的碎片", t.Share456[6][0])
-	fmt.Println("t.Share456[6][1]相应的碎片", t.Share456[6][1])
-	fmt.Println("t.Share456[6][2]相应的碎片", t.Share456[6][2])
+	//40 50 60
+	//return boltvm.Success(t.Recovery[i])
+	if len(t.Recovery) == 4 {
+		var p, _ = gmp.NewInt(0).SetString("57896044618658097711785492504343953926634992332820282019728792006155588075521123123", 10)
+		a := make([]*gmp.Int, 0)
+		a = append(a, gmp.NewInt(4))
+		a = append(a, gmp.NewInt(5))
+		b := make([]*gmp.Int, 0)
+		b4 := gmp.NewInt(0).SetBytes(t.Recovery[4])
+		b5 := gmp.NewInt(0).SetBytes(t.Recovery[5])
+		b = append(b, b4)
+		b = append(b, b5)
 
-	//for j := 0; j < 3; j++ {
-	//	bytes[j] = t.Share456[int64(4+j)][i-4]
-	//}
-	//marshal, err := json.Marshal(bytes)
-	//if err != nil {
-	//	return nil
-	//}
+		//节点456的完整份额的插值多项式
+		interpolate, _ := interpolation.LagrangeInterpolate(1, a, b, p)
+		secrCal := interpolate.GetGmpNum(gmp.NewInt(0))
+		byteCal := secrCal.Bytes()
+		by, _ := t.secret.Bytes()
+		fmt.Println("--------------------最后恢复的密钥与原始密钥对比计算结果是否正确---------------------------", string(byteCal) == string(by))
+	}
+	return boltvm.Success([]byte("恢复完整0点碎片上传成功"))
+}
 
-	return boltvm.Success(nil)
+func (t *SecretShare) GetRecoverySize() *boltvm.Response {
+	i := len(t.Recovery)
+	itoa := strconv.Itoa(i)
+	return boltvm.Success([]byte(itoa))
+}
+
+func (t *SecretShare) GetRecoveryShare(i int64) *boltvm.Response {
+	return boltvm.Success(t.Recovery[i])
 }

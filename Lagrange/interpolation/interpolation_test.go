@@ -436,3 +436,7 @@ func TestGmpGetNum(t *testing.T) {
 	fmt.Println(interpolate)
 	fmt.Println(interpolate.GetGmpNum(gmp.NewInt(10)).Int64())
 }
+
+func TestJson(t *testing.T) {
+	//var bytes = []byte{}
+}
