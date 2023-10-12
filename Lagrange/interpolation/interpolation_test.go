@@ -366,7 +366,7 @@ func TestTwoDimensionalLagrange(t *testing.T) {
 	if err != nil {
 		return
 	}
-	fmt.Println("完整拉格朗日插值多项式", interpolateAns)
+	fmt.Println("获取完整密钥的拉格朗日插值多项式", interpolateAns)
 
 	secrCal := interpolateAns.GetGmpNum(gmp.NewInt(0))
 	byteCal := secrCal.Bytes()
@@ -437,6 +437,111 @@ func TestGmpGetNum(t *testing.T) {
 	fmt.Println(interpolate.GetGmpNum(gmp.NewInt(10)).Int64())
 }
 
-func TestJson(t *testing.T) {
-	//var bytes = []byte{}
+func GmpShamirUtil(x int, secr crypto.PrivateKey) *gmp.Int {
+
+	//x+sec
+	i, _ := secr.Bytes()
+	gmpx := gmp.NewInt(int64(x))
+	IntSecret := gmp.NewInt(0).SetBytes(i)
+	gmpx.Add(gmpx, IntSecret)
+
+	return gmpx
+}
+
+func TestShamir(t *testing.T) {
+	path1 := "/Users/guozhuang/GolandProjects/hub/bitxhub/bitxhub/scripts/build/node1"
+	repo1, _ := repo.Load(path1, "", "", "")
+	secr := repo1.Key.PrivKey
+	i, _ := repo1.Key.PrivKey.Bytes()
+	fmt.Println("生成的秘密为", i)
+	fmt.Println("秘密实际值", GmpShamirUtil(0, secr))
+
+	p := gmp.NewInt(0)
+	p.SetString("57896044618658097711785492504343953926634992332820282019728792006155588075521123123", 10)
+	//p(x)=x+serc  456
+
+	polynomial01 := FromVec([]int64{0, 4}...)
+	polynomial02 := FromVec([]int64{0, 2}...)
+	//polynomial03 := FromVec([]int64{0, 3}...)
+	fmt.Println("节点1生成的0多项式", polynomial01.ToString())
+	fmt.Println("节点2生成的0多项式", polynomial02.ToString())
+	//fmt.Println(polynomial03.ToString())
+
+	//三个节点 1，2，3
+	//节点1拿着 p(1)
+	//节点2拿着 p(2)
+	//节点3拿着 p(3)
+	num1 := GmpShamirUtil(1, secr)
+	num2 := GmpShamirUtil(2, secr)
+	//num3 := GmpShamirUtil(3, secr)
+	fmt.Println("节点1获取的值", GmpShamirUtil(1, secr))
+	fmt.Println("节点2获取的值", GmpShamirUtil(2, secr))
+	//fmt.Println("节点3获取的值", GmpShamirUtil(3, secr))
+
+	//分别用0 多项式对秘密进行转换
+	err := polynomial01.SetCoefficientBig(0, num1)
+	if err != nil {
+		return
+	}
+
+	err = polynomial02.SetCoefficientBig(0, num2)
+	if err != nil {
+		return
+	}
+
+	//x+P(1)
+	fmt.Println("节点1的存储秘密的多项式", polynomial01.ToString())
+	num13 := polynomial01.GetGmpNum(gmp.NewInt(3))
+	fmt.Println("num13", num13.Bytes())
+	num14 := polynomial01.GetGmpNum(gmp.NewInt(4))
+	fmt.Println("num14", num14.Bytes())
+
+	//2x+p(2)
+	fmt.Println("节点2的存储秘密的多项式", polynomial02.ToString())
+	num23 := polynomial02.GetGmpNum(gmp.NewInt(3))
+	fmt.Println("num23", num23.Bytes())
+	num24 := polynomial02.GetGmpNum(gmp.NewInt(4))
+	fmt.Println("num24", num24.Bytes())
+
+	//节点3拿到 13 23 进行插值
+	a := make([]*gmp.Int, 0)
+	a = append(a, gmp.NewInt(1))
+	a = append(a, gmp.NewInt(2))
+
+	b := make([]*gmp.Int, 0)
+	b = append(b, num13)
+	b = append(b, num23)
+
+	interpolate3, err := LagrangeInterpolate(1, a, b, p)
+	fmt.Println("节点3的插值多项式", interpolate3.ToString())
+
+	//节点4 拿到14 24 进行插值
+	b = make([]*gmp.Int, 0)
+	b = append(b, num14)
+	b = append(b, num24)
+
+	interpolate4, err := LagrangeInterpolate(1, a, b, p)
+	fmt.Println("节点4的插值多项式", interpolate4.ToString())
+
+	//获取interpolate3(0),interpolate4(0)进行插值
+	num30 := interpolate3.GetGmpNum(gmp.NewInt(0))
+	fmt.Println("num30", num30.Bytes())
+
+	num40 := interpolate4.GetGmpNum(gmp.NewInt(0))
+	fmt.Println("num40", num40.Bytes())
+
+	a = make([]*gmp.Int, 0)
+	a = append(a, gmp.NewInt(3))
+	a = append(a, gmp.NewInt(4))
+
+	b = make([]*gmp.Int, 0)
+	b = append(b, num30)
+	b = append(b, num40)
+
+	interpolate0, err := LagrangeInterpolate(1, a, b, p)
+	fmt.Println("节点0的插值多项式", interpolate0.ToString(), interpolate0.GetDegree())
+
+	byteCal := interpolate0.GetGmpNum(gmp.NewInt(0)).Bytes()
+	fmt.Println("计算结果是否正确", string(byteCal) == string(i))
+
 }
