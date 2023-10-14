@@ -23,10 +23,12 @@ import (
 	"github.com/ncw/gmp"
 	"math/big"
 	"math/rand"
+	"net/http"
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -77,7 +79,7 @@ func startCMD() cli.Command {
 }
 
 type Node struct {
-	Vrf              []byte
+	//Vrf              []byte
 	PrivKey          crypto.PrivateKey
 	TempPrivKey      crypto.PrivateKey
 	IsSele           bool
@@ -94,6 +96,14 @@ type Node struct {
 	afterIndex       int
 }
 
+type Global struct {
+	Repo *repo.Repo
+	api  *coreapi.CoreAPI
+	bxh  *app.BitXHub
+}
+
+var MyGlobal Global
+
 var Nonce uint64
 
 var MyNode Node
@@ -101,28 +111,8 @@ var MyNode Node
 var p, _ = gmp.NewInt(0).SetString("57896044618658097711785492504343953926634992332820282019728792006155588075521123123", 10)
 
 func start(ctx *cli.Context) error {
+
 	Nonce = 0
-
-	offChainTransmissionConstructor, err := agency.GetOffchainTransmissionConstructor("offChain_transmission")
-	if err != nil {
-		return fmt.Errorf("offchain transmission constructor not found")
-	}
-
-	offChainTransmissionMgr := offChainTransmissionConstructor()
-	err = offChainTransmissionMgr.Start()
-	if err != nil {
-		return fmt.Errorf("offchain transmission start 出问题了")
-	}
-
-	vrf, err := offChainTransmissionMgr.VRF([]byte{})
-	if err != nil {
-		return fmt.Errorf("VRF函数 出问题了 : %w", err)
-	}
-	MyNode = Node{
-		Vrf: vrf,
-	}
-
-	fmt.Printf("vrf 函数结果是 %v", vrf)
 
 	repoRoot, err := repo.PathRootWithDefault(ctx.GlobalString("repo"))
 	if err != nil {
@@ -139,6 +129,9 @@ func start(ctx *cli.Context) error {
 	}
 
 	repo, err := repo.Load(repoRoot, passwd, configPath, networkPath)
+
+	MyGlobal.Repo = repo
+
 	if err != nil {
 		return fmt.Errorf("repo load: %w", err)
 	}
@@ -168,25 +161,7 @@ func start(ctx *cli.Context) error {
 	if err != nil {
 		return fmt.Errorf("init bitxhub failed: %w", err)
 	}
-
-	MyNode.PrivKey = repo.Key.PrivKey
-
-	address, err := MyNode.PrivKey.PublicKey().Address()
-	fmt.Println("自己节点的公钥地址", address)
-	for i := 0; i < len(MyNode.PubKeys); i++ {
-		address1, _ := MyNode.PubKeys[i].Address()
-		if address1.String() == address.String() {
-			MyNode.index = i + 1
-			break
-		}
-	}
-
-	//------------------------------------------生成排序交易---------------------------------------------
-	tx, err := GenSortTX(repo.Key.PrivKey, vrf, Nonce)
-	Nonce++
-	if err != nil {
-		return err
-	}
+	MyGlobal.bxh = bxh
 
 	monitor, err := profile.NewMonitor(repo.Config)
 	if err != nil {
@@ -209,6 +184,7 @@ func start(ctx *cli.Context) error {
 	if err != nil {
 		return err
 	}
+	MyGlobal.api = api
 
 	// start grpc service
 	b, err := grpc.NewChainBrokerService(api, repo.Config, &repo.Config.Genesis, bxh.Ledger)
@@ -250,18 +226,75 @@ func start(ctx *cli.Context) error {
 		return fmt.Errorf("start bitxhub failed: %w", err)
 	}
 
+	MyNode.PrivKey = repo.Key.PrivKey
+
+	address, err := MyNode.PrivKey.PublicKey().Address()
+	fmt.Println("自己节点的公钥地址", address)
+	for i := 0; i < len(MyNode.PubKeys); i++ {
+		address1, _ := MyNode.PubKeys[i].Address()
+		if address1.String() == address.String() {
+			MyNode.index = i + 1
+			break
+		}
+	}
+
+	http.HandleFunc("/", run)
+	listenAddress := "0.0.0.0:" + strconv.Itoa(3300+MyNode.index)
+	err = http.ListenAndServe(listenAddress, nil)
+	if err != nil {
+		fmt.Println("监听出现错误", err)
+	}
+
+	wg.Wait()
+
+	return nil
+}
+
+func run(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("hello")
+
+	offChainTransmissionConstructor, err := agency.GetOffchainTransmissionConstructor("offChain_transmission")
+	if err != nil {
+		_ = fmt.Errorf("offchain transmission constructor not found")
+		return
+	}
+
+	offChainTransmissionMgr := offChainTransmissionConstructor()
+	err = offChainTransmissionMgr.Start()
+	if err != nil {
+		_ = fmt.Errorf("offchain transmission start 出问题了")
+		return
+	}
+
+	vrf, err := offChainTransmissionMgr.VRF([]byte{})
+	if err != nil {
+		_ = fmt.Errorf("VRF函数 出问题了 : %w", err)
+		return
+	}
+	fmt.Printf("vrf 函数结果是 %v", vrf)
+
+	//------------------------------------------生成排序交易---------------------------------------------
+	tx, err := GenSortTX(MyNode.PrivKey, vrf, Nonce)
+	Nonce++
+	if err != nil {
+		_ = fmt.Errorf("GenSortTX 出现问题")
+		return
+	}
+
 	//--------------------------------------------------调用排序合约-------------------------------------------
 
-	receipt, err := sendTransactionWithReceipt(api, tx)
+	receipt, err := sendTransactionWithReceipt(MyGlobal.api, tx)
 	if err != nil {
-		return fmt.Errorf("调用排序合约sendTransactionWithReceipt出错", err)
+		fmt.Errorf("调用排序合约sendTransactionWithReceipt出错", err)
+		return
 	}
 
 	logger.Logger.Println("收到回执", string(receipt.Ret))
 
-	ret, err := InvokeSearchContract(bxh.BlockExecutor, tx, vrf)
+	ret, err := InvokeSearchContract(MyGlobal.bxh.BlockExecutor, tx, vrf)
 	if err != nil {
-		return err
+		fmt.Errorf("InvokeSearchContract出错", err)
+		return
 	}
 	//fmt.Println("合约调用结果", string(ret))
 
@@ -273,15 +306,16 @@ func start(ctx *cli.Context) error {
 	if MyNode.IsSele == true {
 		logger.Logger.Println("该节点已被选为选举委员会成员")
 	}
-	MyNode.AllNodeAddress = repo.NetworkConfig.Nodes
+	MyNode.AllNodeAddress = MyGlobal.Repo.NetworkConfig.Nodes
 
 	//----------------------------------------------获取自己应该持有的完整碎片----------------------------------
 
 	//secretTx, err := GenGetFullShareSecret(Nonce, int64(MyNode.index))
 	//Nonce++
-	ret, err = InvokeGetFullShareSecretContract(bxh.BlockExecutor, tx, int64(MyNode.index))
+	ret, err = InvokeGetFullShareSecretContract(MyGlobal.bxh.BlockExecutor, tx, int64(MyNode.index))
 	if err != nil {
-		return err
+		fmt.Errorf("InvokeGetFullShareSecretContract出错", err)
+		return
 	}
 	if MyNode.isHostPre {
 		fmt.Println("获取到的首次完整密钥碎片的byte", gmp.NewInt(0).SetBytes(ret))
@@ -292,7 +326,8 @@ func start(ctx *cli.Context) error {
 	if MyNode.isHostPre {
 		interpolate, err := FirstInterpolate()
 		if err != nil {
-			return err
+			fmt.Errorf("FirstInterpolatet出错", err)
+			return
 		}
 		MyNode.FirstInterpolate = interpolate
 	}
@@ -303,57 +338,59 @@ func start(ctx *cli.Context) error {
 	shareTx, err := GenCollect34ShareTx(Nonce, shareBytes)
 	Nonce++
 	if err != nil {
-		return err
+		fmt.Errorf("GenCollect34ShareTx出错", err)
+		return
 	}
 
-	receipt, err = sendTransactionWithReceipt(api, shareTx)
+	receipt, err = sendTransactionWithReceipt(MyGlobal.api, shareTx)
 	if err != nil {
-		return fmt.Errorf("调用GenCollect34ShareTx sendTransactionWithReceipt出错%v", err)
+		fmt.Errorf("调用GenCollect34ShareTx sendTransactionWithReceipt出错%v", err)
+		return
 	}
 
 	logger.Logger.Println("收到上传34的回执", string(receipt.Ret))
 
 	////-------------------节点34 获取自己的碎片份额------------------------------------------
 
-	InvokeGet34ShareLength(bxh.BlockExecutor, tx)
+	InvokeGet34ShareLength(MyGlobal.bxh.BlockExecutor, tx)
 
 	if MyNode.index > 2 {
-		Get34Share, err := InvokeGet34Share(bxh.BlockExecutor, tx)
+		Get34Share, err := InvokeGet34Share(MyGlobal.bxh.BlockExecutor, tx)
 		if err != nil {
-			return err
+			fmt.Errorf("调用InvokeGet34Sharet出错%v", err)
+			return
 		}
 		i := make([][]byte, 2)
 		err = json.Unmarshal(Get34Share, &i)
 		fmt.Println("获取到的来自12的密钥碎片", i)
 		Interpolate, err := Interpolate34(i)
 		MyNode.Interpolate34 = Interpolate
-		if err != nil {
-			return err
-		}
 	} else {
 		MyNode.Interpolate34 = polyring.Polynomial{}
 	}
 
 	fmt.Println("拉格朗日插值出来34的多项式", MyNode.Interpolate34)
 
+	//--------------------------------------------节点34 为恢复完整密钥进行计算------------------------------------------
 	recoveryShare := CalRecoveryShare()
 	fmt.Println("节点34为0计算的值", recoveryShare)
 	recoveryTx, err := GenSecretRecoveryTx(Nonce, recoveryShare)
 	Nonce++
 	if err != nil {
-		return err
+		fmt.Errorf("调用GenSecretRecoveryTx出错%v", err)
+		return
 	}
 
-	receipt, err = sendTransactionWithReceipt(api, recoveryTx)
+	receipt, err = sendTransactionWithReceipt(MyGlobal.api, recoveryTx)
 	//if err != nil {
 	//	return fmt.Errorf("调用上传恢复完整密钥碎片的交易sendTransactionWithReceipt出错%v", err)
 	//}
 	//
 	//logger.Logger.Println("收到上传恢复完整密钥碎片的交易的回执", string(receipt.Ret))
 
-	wg.Wait()
+	InvokeGetRecoveryStatus(MyGlobal.bxh.BlockExecutor, tx)
 
-	return nil
+	fmt.Println("----------------------------完整密钥恢复完成-------------------------------------------------")
 }
 
 func checkLicense(rep *repo.Repo) error {
@@ -621,7 +658,7 @@ func sendTransactionWithReceipt(api api.CoreAPI, tx pb.Transaction) (*pb.Receipt
 		case <-ctx.Done():
 			return nil, fmt.Errorf("get receipt timeout")
 		default:
-			time.Sleep(200 * time.Millisecond)
+			time.Sleep(2 * time.Millisecond)
 			err = retry.Retry(func(attempt uint) error {
 				receipt, err = api.Broker().GetReceipt(tx.GetHash())
 				if err != nil {
@@ -630,8 +667,8 @@ func sendTransactionWithReceipt(api api.CoreAPI, tx pb.Transaction) (*pb.Receipt
 
 				return nil
 			},
-				strategy.Limit(5),
-				strategy.Backoff(backoff.Fibonacci(200*time.Millisecond)),
+				strategy.Limit(500),
+				strategy.Backoff(backoff.Fibonacci(2*time.Millisecond)),
 			)
 			if err != nil {
 				receiptErr = err
@@ -1003,7 +1040,7 @@ func InvokeGet456ShareLength(executor executor.Executor, tx pb.Transaction) {
 	}
 }
 
-func InvokeGetRecoverySizeLength(executor executor.Executor, tx pb.Transaction) {
+func InvokeGetRecoveryStatus(executor executor.Executor, tx pb.Transaction) {
 
 	invokeCtx := vm.NewContext(tx, uint64(0), nil, executor.GetHeight()+1, executor.GetLedger(), executor.GetLogger(),
 		executor.GetConfig().EnableAudit, nil)
@@ -1011,7 +1048,7 @@ func InvokeGetRecoverySizeLength(executor executor.Executor, tx pb.Transaction) 
 	instance := boltvm.New(invokeCtx, executor.GetValidationEngine(), executor.GetEvm(), executor.GetTxsExecutor().GetBoltContracts())
 
 	payload := &pb.InvokePayload{
-		Method: "GetRecoverySize",
+		Method: "GetRecoveryStatus",
 		Args:   []*pb.Arg{},
 	}
 	input, err := payload.Marshal()
@@ -1022,9 +1059,9 @@ func InvokeGetRecoverySizeLength(executor executor.Executor, tx pb.Transaction) 
 	for {
 		ret, _, err := instance.InvokeBVM(constant.SecretShareContractAddr.Address().String(), input)
 		if err != nil {
-			fmt.Println("Get456ShareSize出现错了出现错了", err)
+			fmt.Println("InvokeGetRecoveryStatus", err)
 		}
-		if string(ret) == "4" {
+		if len(ret) == 1 {
 			return
 		}
 	}

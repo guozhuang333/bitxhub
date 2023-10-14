@@ -16,6 +16,7 @@ type SecretShare struct {
 	secret   crypto.PrivateKey
 	Share34  map[int64][][]byte
 	Recovery map[int64][]byte
+	flag     bool
 }
 
 //p(x,y)=x+y^2+3*y+2xy+serc
@@ -105,16 +106,17 @@ func (t *SecretShare) CollectSecretRecoveryShare(i int64, bytes []byte) *boltvm.
 		byteCal := secrCal.Bytes()
 		by, _ := t.secret.Bytes()
 		fmt.Println("--------------------最后恢复的密钥与原始密钥对比计算结果是否正确---------------------------", string(byteCal) == string(by))
+		t.flag = true
 	}
 	return boltvm.Success([]byte("恢复完整0点碎片上传成功"))
 }
 
-func (t *SecretShare) GetRecoverySize() *boltvm.Response {
-	i := len(t.Recovery)
-	itoa := strconv.Itoa(i)
-	return boltvm.Success([]byte(itoa))
-}
-
-func (t *SecretShare) GetRecoveryShare(i int64) *boltvm.Response {
-	return boltvm.Success(t.Recovery[i])
+func (t *SecretShare) GetRecoveryStatus() *boltvm.Response {
+	if t.flag {
+		t.Recovery = make(map[int64][]byte)
+		t.Share34 = make(map[int64][][]byte)
+		return boltvm.Success([]byte{1})
+	} else {
+		return boltvm.Success([]byte{})
+	}
 }

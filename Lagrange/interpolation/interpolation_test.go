@@ -6,6 +6,7 @@ import (
 	"github.com/meshplus/bitxhub-kit/crypto"
 	"github.com/meshplus/bitxhub/internal/repo"
 	"math/rand"
+	"strconv"
 	"testing"
 
 	. "github.com/meshplus/bitxhub/Lagrange/polyring"
@@ -544,4 +545,9 @@ func TestShamir(t *testing.T) {
 	byteCal := interpolate0.GetGmpNum(gmp.NewInt(0)).Bytes()
 	fmt.Println("计算结果是否正确", string(byteCal) == string(i))
 
+}
+
+func Test(t *testing.T) {
+	listenAddress := "0.0.0.0:" + strconv.Itoa(3300+1)
+	fmt.Println(listenAddress)
 }
