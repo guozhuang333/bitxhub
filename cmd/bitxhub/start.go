@@ -23,10 +23,12 @@ import (
 	"github.com/ncw/gmp"
 	"math/big"
 	"math/rand"
+	"net/http"
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -77,7 +79,6 @@ func startCMD() cli.Command {
 }
 
 type Node struct {
-	Vrf              []byte
 	PrivKey          crypto.PrivateKey
 	TempPrivKey      crypto.PrivateKey
 	IsSele           bool
@@ -94,6 +95,14 @@ type Node struct {
 	afterIndex       int
 }
 
+type Global struct {
+	Repo *repo.Repo
+	api  *coreapi.CoreAPI
+	bxh  *app.BitXHub
+}
+
+var MyGlobal Global
+
 var Nonce uint64
 
 var MyNode Node
@@ -102,27 +111,6 @@ var p, _ = gmp.NewInt(0).SetString("57896044618658097711785492504343953926634992
 
 func start(ctx *cli.Context) error {
 	Nonce = 0
-
-	offChainTransmissionConstructor, err := agency.GetOffchainTransmissionConstructor("offChain_transmission")
-	if err != nil {
-		return fmt.Errorf("offchain transmission constructor not found")
-	}
-
-	offChainTransmissionMgr := offChainTransmissionConstructor()
-	err = offChainTransmissionMgr.Start()
-	if err != nil {
-		return fmt.Errorf("offchain transmission start 出问题了")
-	}
-
-	vrf, err := offChainTransmissionMgr.VRF([]byte{})
-	if err != nil {
-		return fmt.Errorf("VRF函数 出问题了 : %w", err)
-	}
-	MyNode = Node{
-		Vrf: vrf,
-	}
-
-	fmt.Printf("vrf 函数结果是 %v", vrf)
 
 	repoRoot, err := repo.PathRootWithDefault(ctx.GlobalString("repo"))
 	if err != nil {
@@ -153,6 +141,7 @@ func start(ctx *cli.Context) error {
 	if err != nil {
 		return fmt.Errorf("log initialize: %w", err)
 	}
+	MyGlobal.Repo = repo
 
 	loggers.Initialize(repo.Config)
 
@@ -168,6 +157,7 @@ func start(ctx *cli.Context) error {
 	if err != nil {
 		return fmt.Errorf("init bitxhub failed: %w", err)
 	}
+	MyGlobal.bxh = bxh
 
 	MyNode.PrivKey = repo.Key.PrivKey
 
@@ -179,13 +169,6 @@ func start(ctx *cli.Context) error {
 			MyNode.index = i + 1
 			break
 		}
-	}
-
-	//------------------------------------------生成排序交易---------------------------------------------
-	tx, err := GenSortTX(repo.Key.PrivKey, vrf, Nonce)
-	Nonce++
-	if err != nil {
-		return err
 	}
 
 	monitor, err := profile.NewMonitor(repo.Config)
@@ -209,6 +192,7 @@ func start(ctx *cli.Context) error {
 	if err != nil {
 		return err
 	}
+	MyGlobal.api = api
 
 	// start grpc service
 	b, err := grpc.NewChainBrokerService(api, repo.Config, &repo.Config.Genesis, bxh.Ledger)
@@ -250,18 +234,64 @@ func start(ctx *cli.Context) error {
 		return fmt.Errorf("start bitxhub failed: %w", err)
 	}
 
+	http.HandleFunc("/", run)
+	listenAddress := "0.0.0.0:" + strconv.Itoa(3300+MyNode.index)
+	err = http.ListenAndServe(listenAddress, nil)
+	if err != nil {
+		fmt.Println("监听出现错误", err)
+	}
+
+	wg.Wait()
+
+	return nil
+}
+
+func run(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("hello")
+
+	offChainTransmissionConstructor, err := agency.GetOffchainTransmissionConstructor("offChain_transmission")
+	if err != nil {
+		_ = fmt.Errorf("offchain transmission constructor not found")
+		return
+	}
+
+	offChainTransmissionMgr := offChainTransmissionConstructor()
+	err = offChainTransmissionMgr.Start()
+	if err != nil {
+		_ = fmt.Errorf("offchain transmission start 出问题了")
+		return
+	}
+
+	vrf, err := offChainTransmissionMgr.VRF([]byte{})
+	if err != nil {
+		_ = fmt.Errorf("VRF函数 出问题了 : %w", err)
+		return
+	}
+
+	fmt.Printf("vrf 函数结果是 %v", vrf)
+
+	//------------------------------------------生成排序交易---------------------------------------------
+	tx, err := GenSortTX(MyGlobal.Repo.Key.PrivKey, vrf, Nonce)
+	Nonce++
+	if err != nil {
+		_ = fmt.Errorf("GenSortTX 出问题了", err)
+		return
+	}
+
 	//--------------------------------------------------调用排序合约-------------------------------------------
 
-	receipt, err := sendTransactionWithReceipt(api, tx)
+	receipt, err := sendTransactionWithReceipt(MyGlobal.api, tx)
 	if err != nil {
-		return fmt.Errorf("调用排序合约sendTransactionWithReceipt出错", err)
+		fmt.Errorf("调用排序合约sendTransactionWithReceipt出错", err)
+		return
 	}
 
 	logger.Logger.Println("收到回执", string(receipt.Ret))
 
-	ret, err := InvokeSearchContract(bxh.BlockExecutor, tx, vrf)
+	ret, err := InvokeSearchContract(MyGlobal.bxh.BlockExecutor, tx, vrf)
 	if err != nil {
-		return err
+		fmt.Errorf("InvokeSearchContract出错", err)
+		return
 	}
 	//fmt.Println("合约调用结果", string(ret))
 
@@ -273,21 +303,23 @@ func start(ctx *cli.Context) error {
 	if MyNode.IsSele == true {
 		logger.Logger.Println("该节点已被选为选举委员会成员")
 	}
-	MyNode.AllNodeAddress = repo.NetworkConfig.Nodes
+	MyNode.AllNodeAddress = MyGlobal.Repo.NetworkConfig.Nodes
 
 	if MyNode.IsSele {
 		//-------------------------如果是选举节点，选取一个节点作为秘密持有节点--------------------------
 		selectHostTX, err := GenSelectHostTX(Nonce)
 		Nonce++
 		if err != nil {
-			return err
+			fmt.Errorf("GenSelectHostTX出错", err)
+			return
 		}
 
 		//调用选举合约
 
-		receipt, err = sendTransactionWithReceipt(api, selectHostTX)
+		receipt, err = sendTransactionWithReceipt(MyGlobal.api, selectHostTX)
 		if err != nil {
-			return fmt.Errorf("调用选举合约sendTransactionWithReceipt出错", err)
+			fmt.Errorf("调用选举合约sendTransactionWithReceipt出错", err)
+			return
 		}
 
 		logger.Logger.Println("收到回执", string(receipt.Ret))
@@ -295,14 +327,16 @@ func start(ctx *cli.Context) error {
 		selectHostTX, err := GenEmptySelectHostTX(Nonce)
 		Nonce++
 		if err != nil {
-			return err
+			fmt.Errorf("调用选举合约GenEmptySelectHostTX出错", err)
+			return
 		}
 
 		//调用空选举合约
 
-		receipt, err = sendTransactionWithReceipt(api, selectHostTX)
+		receipt, err = sendTransactionWithReceipt(MyGlobal.api, selectHostTX)
 		if err != nil {
-			return fmt.Errorf("调用空选举合约sendTransactionWithReceipt出错", err)
+			fmt.Errorf("sendTransactionWithReceipt selectHostTX出错", err)
+			return
 		}
 
 		logger.Logger.Println("收到回执", string(receipt.Ret))
@@ -313,13 +347,15 @@ func start(ctx *cli.Context) error {
 		mapTX, err := GenKeyMapTX(Nonce)
 		Nonce++
 		if err != nil {
-			return err
+			fmt.Errorf("GenKeyMapTX出错", err)
+			return
 		}
 		//调用收集合约
 
-		receipt, err = sendTransactionWithReceipt(api, mapTX)
+		receipt, err = sendTransactionWithReceipt(MyGlobal.api, mapTX)
 		if err != nil {
-			return fmt.Errorf("调用收集合约sendTransactionWithReceipt出错", err)
+			fmt.Errorf("sendTransactionWithReceipt  mapTX出错", err)
+			return
 		}
 
 		logger.Logger.Println("收到上传keymap回执", string(receipt.Ret))
@@ -328,14 +364,16 @@ func start(ctx *cli.Context) error {
 		mapTX, err := GenEmptyKeyMapTX(Nonce)
 		Nonce++
 		if err != nil {
-			return err
+			fmt.Errorf("GenEmptyKeyMapTX 出错", err)
+			return
 		}
 
 		//调用空上传合约
 
-		receipt, err = sendTransactionWithReceipt(api, mapTX)
+		receipt, err = sendTransactionWithReceipt(MyGlobal.api, mapTX)
 		if err != nil {
-			return fmt.Errorf("调用空上传合约sendTransactionWithReceipt出错", err)
+			fmt.Errorf("调用空上传合约sendTransactionWithReceipt mapTX出错", err)
+			return
 		}
 
 		logger.Logger.Println("收到上传keymap回执", string(receipt.Ret))
@@ -343,11 +381,11 @@ func start(ctx *cli.Context) error {
 
 	//--------------------------------------解密获得临时沟通密钥-------------------------------------------------------
 
-	err = DecryptTempPri(bxh.BlockExecutor)
+	err = DecryptTempPri(MyGlobal.bxh.BlockExecutor)
 
 	if err != nil {
 		fmt.Println("DecryptTempPri", err)
-		return err
+		return
 	}
 	if MyNode.TempPrivKey != nil {
 		MyNode.isHostPre = true
@@ -362,9 +400,10 @@ func start(ctx *cli.Context) error {
 	//--------------------------------------------------获取到keyMap-------------------------------------------------
 	//mapTX, err := GenEmptyKeyMapTX(Nonce)
 	//Nonce++
-	ret, err = InvokeGetKeyMapContract(bxh.BlockExecutor, tx)
+	ret, err = InvokeGetKeyMapContract(MyGlobal.bxh.BlockExecutor, tx)
 	if err != nil {
-		return err
+		fmt.Println("InvokeGetKeyMapContract出错", err)
+		return
 	}
 	fmt.Println("获取到到keymap到json后到byte", ret)
 	m := make(map[string][]byte)
@@ -382,9 +421,10 @@ func start(ctx *cli.Context) error {
 
 	//secretTx, err := GenGetFullShareSecret(Nonce, int64(MyNode.index))
 	//Nonce++
-	ret, err = InvokeGetFullShareSecretContract(bxh.BlockExecutor, tx, int64(MyNode.index))
+	ret, err = InvokeGetFullShareSecretContract(MyGlobal.bxh.BlockExecutor, tx, int64(MyNode.index))
 	if err != nil {
-		return err
+		fmt.Println("InvokeGetFullShareSecretContract出错", err)
+		return
 	}
 	if MyNode.isHostPre {
 		fmt.Println("获取到的首次完整密钥碎片的json后到byte", ret)
@@ -403,24 +443,27 @@ func start(ctx *cli.Context) error {
 	shareTx, err := GenCollectHalf456ShareTx(Nonce, shareBytes)
 	Nonce++
 	if err != nil {
-		return err
+		fmt.Println("GenCollectHalf456ShareTx出错", err)
+		return
 	}
 
-	receipt, err = sendTransactionWithReceipt(api, shareTx)
+	receipt, err = sendTransactionWithReceipt(MyGlobal.api, shareTx)
 	if err != nil {
-		return fmt.Errorf("调用上传一半456sendTransactionWithReceipt出错%v", err)
+		fmt.Errorf("调用上传一半456sendTransactionWithReceipt出错%v", err)
+		return
 	}
 
 	logger.Logger.Println("收到上传456的回执", string(receipt.Ret))
 
 	//-------------------节点4为4 3为5 2为6 成为下一个委员会成员     计算一半份额的密钥碎片------------------------------------------
 
-	InvokeGetHalf456ShareLength(bxh.BlockExecutor, tx)
+	InvokeGetHalf456ShareLength(MyGlobal.bxh.BlockExecutor, tx)
 
 	if MyNode.index >= 2 {
-		getHalf456Share, err := InvokeGetHalf456Share(bxh.BlockExecutor, tx)
+		getHalf456Share, err := InvokeGetHalf456Share(MyGlobal.bxh.BlockExecutor, tx)
 		if err != nil {
-			return err
+			fmt.Println("InvokeGetHalf456Share出错", err)
+			return
 		}
 		i := make([][]byte, 5)
 		err = json.Unmarshal(getHalf456Share, &i)
@@ -428,7 +471,8 @@ func start(ctx *cli.Context) error {
 		halfInterpolate, err := HalfInterpolate(i)
 		MyNode.HalfInterpolate = halfInterpolate
 		if err != nil {
-			return err
+			fmt.Println("HalfInterpolate出错", err)
+			return
 		}
 	} else {
 		MyNode.HalfInterpolate = polyring.Polynomial{}
@@ -444,24 +488,27 @@ func start(ctx *cli.Context) error {
 	collect456ShareTx, err := GenCollect456ShareTx(Nonce, share)
 	Nonce++
 	if err != nil {
-		return err
+		fmt.Println("GenCollect456ShareTx出错", err)
+		return
 	}
 
-	receipt, err = sendTransactionWithReceipt(api, collect456ShareTx)
+	receipt, err = sendTransactionWithReceipt(MyGlobal.api, collect456ShareTx)
 	if err != nil {
-		return fmt.Errorf("调用上传完整456sendTransactionWithReceipt出错%v", err)
+		fmt.Errorf("调用上传完整456sendTransactionWithReceipt出错%v", err)
+		return
 	}
 
 	logger.Logger.Println("收到上传完整456的回执", string(receipt.Ret))
 
 	//------------------------------节点456通过拉格朗日插值分别计算自己的完整的碎片-----------------------------
 
-	InvokeGet456ShareLength(bxh.BlockExecutor, tx)
+	InvokeGet456ShareLength(MyGlobal.bxh.BlockExecutor, tx)
 
 	if MyNode.afterIndex <= 6 {
-		get456Share, err := InvokeGet456Share(bxh.BlockExecutor, tx)
+		get456Share, err := InvokeGet456Share(MyGlobal.bxh.BlockExecutor, tx)
 		if err != nil {
-			return err
+			fmt.Println("InvokeGet456Share出错", err)
+			return
 		}
 		fmt.Println("获取的完整碎片-------------------------", get456Share)
 
@@ -470,7 +517,8 @@ func start(ctx *cli.Context) error {
 		fmt.Println("获取到的恢复正常份额的密钥碎片", i)
 		interpolate456, err := Interpolate456(i)
 		if err != nil {
-			return err
+			fmt.Println("interpolate456出错", err)
+			return
 		}
 		MyNode.AfterInterpolate = interpolate456
 	} else {
@@ -483,43 +531,18 @@ func start(ctx *cli.Context) error {
 	recoveryTx, err := GenSecretRecoveryTx(Nonce, recoveryShare)
 	Nonce++
 	if err != nil {
-		return err
+		fmt.Println("GenSecretRecoveryTx出错", err)
+		return
 	}
 
-	receipt, err = sendTransactionWithReceipt(api, recoveryTx)
+	receipt, err = sendTransactionWithReceipt(MyGlobal.api, recoveryTx)
 	if err != nil {
-		return fmt.Errorf("调用上传恢复完整密钥碎片的交易sendTransactionWithReceipt出错%v", err)
+		fmt.Errorf("调用上传恢复完整密钥碎片的交易sendTransactionWithReceipt出错%v", err)
+		return
 	}
 
 	logger.Logger.Println("收到上传恢复完整密钥碎片的交易的回执", string(receipt.Ret))
 
-	//InvokeGetRecoverySizeLength(bxh.BlockExecutor, tx)
-	//
-	//getRecoveryShare4, err := InvokeGetRecoveryShare(4, bxh.BlockExecutor, tx)
-	//if err != nil {
-	//	return err
-	//}
-	//fmt.Println("getRecoveryShare4", getRecoveryShare4)
-	//
-	//getRecoveryShare5, err := InvokeGetRecoveryShare(5, bxh.BlockExecutor, tx)
-	//if err != nil {
-	//	return err
-	//}
-	//fmt.Println("getRecoveryShare5", getRecoveryShare5)
-	//
-	//recovery, err := InterpolateRecovery(getRecoveryShare4, getRecoveryShare5)
-	//if err != nil {
-	//	return err
-	//}
-	//
-	//lastAns := recovery.GetGmpNum(gmp.NewInt(0))
-	//
-	//lastAnsBytes := lastAns.Bytes()
-	//
-
-	wg.Wait()
-
-	return nil
 }
 
 func checkLicense(rep *repo.Repo) error {
