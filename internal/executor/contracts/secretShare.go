@@ -11,6 +11,9 @@ import (
 	"strconv"
 )
 
+const totalNums = 5
+const hostNums = 2
+
 type SecretShare struct {
 	boltvm.Stub
 	secret   crypto.PrivateKey
@@ -47,14 +50,14 @@ func (t *SecretShare) Collect34Share(i int64, b []byte) *boltvm.Response {
 	if t.Share34 == nil {
 		t.Share34 = make(map[int64][][]byte)
 	}
-	bytes := make([][]byte, 2)
+	bytes := make([][]byte, hostNums)
 	err := json.Unmarshal(b, &bytes)
 	if err != nil {
 		return nil
 	}
 
-	//[1][0] 是 13 [1][1] 是 14
-	//[2][0]   23  [2][1] 	24
+	//[1][0] 是 14 [1][1] 是 15
+	//[2][0]   24  [2][1] 	25
 	t.Share34[i] = bytes
 	return boltvm.Success([]byte("34碎片上传成功"))
 }
@@ -66,12 +69,16 @@ func (t *SecretShare) Get34ShareSize() *boltvm.Response {
 }
 
 func (t *SecretShare) Get34Share(i int64) *boltvm.Response {
-	bytes := make([][]byte, 2)
+	bytes := make([][]byte, hostNums)
 
 	//fmt.Println("收到请求index", i)
 
-	bytes[0] = t.Share34[1][i-3]
-	bytes[1] = t.Share34[2][i-3]
+	for j := 0; j < hostNums; j++ {
+
+		//byte[0]=t.Share34[1][0] for4
+		//byte[1]=t.Share34[2][0] for4
+		bytes[j] = t.Share34[int64(j+1)][i-(totalNums+1-hostNums)]
+	}
 	marshal, err := json.Marshal(bytes)
 	if err != nil {
 		return nil
@@ -89,19 +96,23 @@ func (t *SecretShare) CollectSecretRecoveryShare(i int64, bytes []byte) *boltvm.
 	//40 50 60
 	//return boltvm.Success(t.Recovery[i])
 	fmt.Println(t.Recovery)
-	if len(t.Recovery) == 4 {
+	if len(t.Recovery) == totalNums {
 		var p, _ = gmp.NewInt(0).SetString("57896044618658097711785492504343953926634992332820282019728792006155588075521123123", 10)
 		a := make([]*gmp.Int, 0)
-		a = append(a, gmp.NewInt(3))
-		a = append(a, gmp.NewInt(4))
+		for j := 0; j < hostNums; j++ {
+			//a = append(a, gmp.NewInt(4))
+			//a = append(a, gmp.NewInt(5))
+			a = append(a, gmp.NewInt(int64(totalNums+1-hostNums+j)))
+		}
 		b := make([]*gmp.Int, 0)
-		b4 := gmp.NewInt(0).SetBytes(t.Recovery[3])
-		b5 := gmp.NewInt(0).SetBytes(t.Recovery[4])
-		b = append(b, b4)
-		b = append(b, b5)
+		for j := 0; j < hostNums; j++ {
+			//b4 := gmp.NewInt(0).SetBytes(t.Recovery[3])
+			//b5 := gmp.NewInt(0).SetBytes(t.Recovery[4])
+			b = append(b, gmp.NewInt(0).SetBytes(t.Recovery[int64(totalNums+1-hostNums+j)]))
+		}
 
 		//完整份额的插值多项式
-		interpolate, _ := interpolation.LagrangeInterpolate(1, a, b, p)
+		interpolate, _ := interpolation.LagrangeInterpolate(hostNums-1, a, b, p)
 		secrCal := interpolate.GetGmpNum(gmp.NewInt(0))
 		byteCal := secrCal.Bytes()
 		by, _ := t.secret.Bytes()

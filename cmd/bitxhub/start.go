@@ -78,6 +78,9 @@ func startCMD() cli.Command {
 	}
 }
 
+const totalNums = 5
+const hostNums = 2
+
 type Node struct {
 	//Vrf              []byte
 	PrivKey          crypto.PrivateKey
@@ -123,10 +126,7 @@ func start(ctx *cli.Context) error {
 	configPath := ctx.String("config")
 	networkPath := ctx.String("network")
 	orderPath := ctx.String("order")
-	err = getAdd()
-	if err != nil {
-		return err
-	}
+	getAdd()
 
 	repo, err := repo.Load(repoRoot, passwd, configPath, networkPath)
 
@@ -300,7 +300,7 @@ func run(w http.ResponseWriter, r *http.Request) {
 
 	//--------------------------------根据合约结果判断是否成为持有秘密节点-----------------------------
 	//num, _ := strconv.Atoi(string(ret))
-	if MyNode.index <= 2 {
+	if MyNode.index <= hostNums {
 		MyNode.isHostPre = true
 	}
 	if MyNode.IsSele == true {
@@ -354,13 +354,13 @@ func run(w http.ResponseWriter, r *http.Request) {
 
 	InvokeGet34ShareLength(MyGlobal.bxh.BlockExecutor, tx)
 
-	if MyNode.index > 2 {
+	if MyNode.index >= totalNums+1-hostNums {
 		Get34Share, err := InvokeGet34Share(MyGlobal.bxh.BlockExecutor, tx)
 		if err != nil {
 			fmt.Errorf("调用InvokeGet34Sharet出错%v", err)
 			return
 		}
-		i := make([][]byte, 2)
+		i := make([][]byte, hostNums)
 		err = json.Unmarshal(Get34Share, &i)
 		fmt.Println("获取到的来自12的密钥碎片", i)
 		Interpolate, err := Interpolate34(i)
@@ -490,20 +490,22 @@ func GenContractTransaction(vmType pb.TransactionData_VMType, privateKey crypto.
 	return tx, nil
 }
 
-func getAdd() error {
-	path1 := "/Users/guozhuang/GolandProjects/hub/bitxhub/bitxhub/scripts/build/node1"
-	path2 := "/Users/guozhuang/GolandProjects/hub/bitxhub/bitxhub/scripts/build/node2"
-	path3 := "/Users/guozhuang/GolandProjects/hub/bitxhub/bitxhub/scripts/build/node3"
-	path4 := "/Users/guozhuang/GolandProjects/hub/bitxhub/bitxhub/scripts/build/node4"
-	repo1, _ := repo.Load(path1, "", "", "")
-	repo2, _ := repo.Load(path2, "", "", "")
-	repo3, _ := repo.Load(path3, "", "", "")
-	repo4, _ := repo.Load(path4, "", "", "")
-	MyNode.PubKeys = append(MyNode.PubKeys, repo1.Key.PrivKey.PublicKey())
-	MyNode.PubKeys = append(MyNode.PubKeys, repo2.Key.PrivKey.PublicKey())
-	MyNode.PubKeys = append(MyNode.PubKeys, repo3.Key.PrivKey.PublicKey())
-	MyNode.PubKeys = append(MyNode.PubKeys, repo4.Key.PrivKey.PublicKey())
-	return nil
+func getAdd() {
+	for i := 1; i <= totalNums; i++ {
+		path := "/Users/guozhuang/GolandProjects/hub/bitxhub/bitxhub/scripts/build/node" + strconv.Itoa(i)
+		repo, _ := repo.Load(path, "", "", "")
+		MyNode.PubKeys = append(MyNode.PubKeys, repo.Key.PrivKey.PublicKey())
+	}
+
+	//path2 := "/Users/guozhuang/GolandProjects/hub/bitxhub/bitxhub/scripts/build/node2"
+	//path3 := "/Users/guozhuang/GolandProjects/hub/bitxhub/bitxhub/scripts/build/node3"
+	//path4 := "/Users/guozhuang/GolandProjects/hub/bitxhub/bitxhub/scripts/build/node4"
+
+	//repo2, _ := repo.Load(path2, "", "", "")
+	//repo3, _ := repo.Load(path3, "", "", "")
+	//repo4, _ := repo.Load(path4, "", "", "")
+
+	return
 }
 
 // FirstInterpolate  第一次节点拉格朗日插值计算
@@ -591,13 +593,14 @@ func Cal34Share() []byte {
 	if MyNode.FirstInterpolate.GetDegree() == 0 {
 		return nil
 	}
-	NumFor3 := MyNode.FirstInterpolate.GetGmpNum(gmp.NewInt(3))
-	NumFor4 := MyNode.FirstInterpolate.GetGmpNum(gmp.NewInt(4))
 
-	bytes := make([][]byte, 2)
-	bytes[0] = NumFor3.Bytes()
-	bytes[1] = NumFor4.Bytes()
-	fmt.Println("numfor3,numfor4", bytes)
+	bytes := make([][]byte, hostNums)
+	for i := hostNums - 1; i >= 0; i-- {
+		//4 5
+		NumForHost := MyNode.FirstInterpolate.GetGmpNum(gmp.NewInt(int64(totalNums - i)))
+		bytes[hostNums-1-i] = NumForHost.Bytes()
+	}
+	fmt.Println("numforHost", bytes)
 
 	uploadByte, _ := json.Marshal(bytes)
 
@@ -1007,7 +1010,7 @@ func InvokeGet34ShareLength(executor executor.Executor, tx pb.Transaction) {
 		if err != nil {
 			fmt.Println("InvokeGet34ShareLength合约调用出现错了出现错了", err)
 		}
-		if string(ret) == "4" {
+		if string(ret) == strconv.Itoa(totalNums) {
 			return
 		}
 	}
