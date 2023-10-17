@@ -11,6 +11,10 @@ import (
 	"strconv"
 )
 
+const totalNums = 5
+const hostNums = 3
+const hostBegin = totalNums - hostNums + 1
+
 type SecretShare struct {
 	boltvm.Stub
 	secret       crypto.PrivateKey
@@ -74,18 +78,18 @@ func (t *SecretShare) Collect456HalfShare(i int64, b []byte) *boltvm.Response {
 	if t.HalfShare456 == nil {
 		t.HalfShare456 = make(map[int64][][]byte)
 	}
-	bytes := make([][]byte, 3)
+	bytes := make([][]byte, hostNums)
 	err := json.Unmarshal(b, &bytes)
 	if err != nil {
 		return nil
 	}
 
 	//14,15,16都存在t.HalfShare456[1]里面
-	//t.HalfShare456[1][0]是14 t.HalfShare456[1][1]是15 t.HalfShare456[1][2]是16
-	//t.HalfShare456[2][0]是24 t.HalfShare456[2][1]是25 t.HalfShare456[2][2]是26
-	//t.HalfShare456[3][0]是34 t.HalfShare456[3][1]是35 t.HalfShare456[3][2]是36
+	//t.HalfShare456[1][0]是13 t.HalfShare456[1][1]是14 t.HalfShare456[1][2]是15
+	//t.HalfShare456[2][0]是23 t.HalfShare456[2][1]是24 t.HalfShare456[2][2]是25
+	//t.HalfShare456[3][0]是33 t.HalfShare456[3][1]是34 t.HalfShare456[3][2]是35
 	t.HalfShare456[i] = bytes
-	//fmt.Println(t.HalfShare456)
+	fmt.Println("t.HalfShare456", t.HalfShare456)
 	return boltvm.Success([]byte("一半456碎片上传成功"))
 }
 
@@ -96,19 +100,14 @@ func (t *SecretShare) GetHalf456ShareSize() *boltvm.Response {
 }
 
 func (t *SecretShare) GetHalf456Share(i int64) *boltvm.Response {
-	//4是4 3是5 2是6
-	bytes := make([][]byte, 5)
 
-	//fmt.Println("收到请求index", i)
+	bytes := make([][]byte, hostNums)
 
-	for j := 1; j <= 4; j++ {
-		//fmt.Println("进入到的j", j, t.HalfShare456[int64(j)])
-		if len(t.HalfShare456[int64(j)]) > 0 {
-			//fmt.Println("获取到的密钥碎片", t.HalfShare456[int64(j)][4-i])
-			bytes[j] = t.HalfShare456[int64(j)][4-i]
-		} else {
-			bytes[j] = nil
-		}
+	fmt.Println("收到请求index", i)
+
+	for j := 0; j < hostNums; j++ {
+		//3-0 4-1 5-2
+		bytes[j] = t.HalfShare456[int64(j+1)][i-hostBegin]
 	}
 	marshal, err := json.Marshal(bytes)
 	if err != nil {
@@ -122,16 +121,16 @@ func (t *SecretShare) Collect456Share(i int64, b []byte) *boltvm.Response {
 	if t.Share456 == nil {
 		t.Share456 = make(map[int64][][]byte)
 	}
-	bytes := make([][]byte, 3)
+	bytes := make([][]byte, hostNums)
 	err := json.Unmarshal(b, &bytes)
 	if err != nil {
 		return nil
 	}
 
 	//44,45,46都存在t.Share456[4]里面
-	//t.Share456[4][0]是44 t.Share456[4][1]是54 t.Share456[4][2]是64
-	//t.Share456[5][0]是45 t.Share456[5][1]是55 t.Share456[5][2]是65
-	//t.Share456[6][0]是46 t.Share456[6][1]是56 t.Share456[6][2]是66
+	//t.Share456[3][0]是33 t.Share456[3][1]是43 t.Share456[3][2]是53
+	//t.Share456[4][0]是34 t.Share456[4][1]是44 t.Share456[4][2]是54
+	//t.Share456[5][0]是35 t.Share456[5][1]是45 t.Share456[5][2]是55
 	t.Share456[i] = bytes
 	//fmt.Println("完整的456share", t.Share456)
 	return boltvm.Success([]byte("恢复完整456碎片上传成功"))
@@ -144,9 +143,9 @@ func (t *SecretShare) Get456ShareSize() *boltvm.Response {
 }
 
 func (t *SecretShare) Get456Share(i int64) *boltvm.Response {
-	bytes := make([][]byte, 3)
-	for j := 0; j < 3; j++ {
-		bytes[j] = t.Share456[int64(4+j)][i-4]
+	bytes := make([][]byte, hostNums)
+	for j := 0; j < hostNums; j++ {
+		bytes[j] = t.Share456[int64(hostNums+j)][i-hostBegin]
 	}
 	marshal, err := json.Marshal(bytes)
 	if err != nil {
@@ -163,7 +162,7 @@ func (t *SecretShare) CollectSecretRecoveryShare(i int64, bytes []byte) *boltvm.
 
 	//40 50 60
 	//return boltvm.Success(t.Recovery[i])
-	if len(t.Recovery) == 4 {
+	if len(t.Recovery) == totalNums {
 		var p, _ = gmp.NewInt(0).SetString("57896044618658097711785492504343953926634992332820282019728792006155588075521123123", 10)
 		a := make([]*gmp.Int, 0)
 		a = append(a, gmp.NewInt(4))

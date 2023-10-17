@@ -374,6 +374,268 @@ func TestTwoDimensionalLagrange(t *testing.T) {
 
 }
 
+func TestTwoDimensionalLagrangeNode5(t *testing.T) {
+	//secr, err := asym.GenerateKeyPair(crypto.Secp256k1)
+
+	path1 := "/Users/guozhuang/GolandProjects/hub/bitxhub/bitxhub/scripts/build/node1"
+	repo1, _ := repo.Load(path1, "", "", "")
+	secr := repo1.Key.PrivKey
+	i, err := repo1.Key.PrivKey.Bytes()
+	fmt.Println("生成的秘密为", i)
+	fmt.Println("秘密实际值", GmpUtil(0, 0, secr))
+
+	p := gmp.NewInt(0)
+	p.SetString("57896044618658097711785492504343953926634992332820282019728792006155588075521123123", 10)
+	//p(x,y)=x+y^2+3*y+2xy+serc
+	//三个节点 1，2，3
+	//节点1拿着 p(1,1) p(1,2) p(1,3)
+	//节点2拿着 p(2,1) p(2,2) p(2,3)
+	//节点3拿着 p(3,1) p(3,2) p(3,3)
+	//fmt.Println("节点1的值", util(1, 1), util(1, 2), util(1, 3))
+	//fmt.Println("节点2的值", util(2, 1), util(2, 2), util(2, 3))
+	//fmt.Println("节点3的值", util(3, 1), util(3, 2), util(3, 3))
+
+	//fmt.Println("节点1的值", GmpUtil(1, 1), GmpUtil(1, 2), GmpUtil(1, 3))
+	//fmt.Println("节点2的值", GmpUtil(2, 1), GmpUtil(2, 2), GmpUtil(2, 3))
+	//fmt.Println("节点3的值", GmpUtil(3, 1), GmpUtil(3, 2), GmpUtil(3, 3))
+
+	//进入新时期 变成节点 3 4 5 此时的份额是减半的
+	//节点3拿着 p(1,3) p(2,3) p(3,3)
+	//节点4拿着 p(1,4) p(2,4) p(3,4)
+	//节点5拿着 p(1,5) p(2,5) p(3,5)
+
+	//节点3计算出 p(3,3) p(4,3) p(5,3)
+	//节点4计算出 p(3,4) p(4,4) p(5,4)
+	//节点5计算出 p(3,5) p(4,5) p(5,5)
+
+	//进入份额恢复
+	//节点3拿着  p(3,3) p(3,4) p(3,5)
+	//节点4拿着  p(4,3) p(4,4) p(4,5)
+	//节点5拿着  p(5,3) p(5,4) p(5,5)
+
+	a := make([]*gmp.Int, 0)
+	a = append(a, gmp.NewInt(1))
+	a = append(a, gmp.NewInt(2))
+	a = append(a, gmp.NewInt(3))
+
+	b := make([]*gmp.Int, 0)
+	b = append(b, GmpUtil(1, 1, secr))
+	b = append(b, GmpUtil(1, 2, secr))
+	b = append(b, GmpUtil(1, 3, secr))
+
+	fmt.Println("节点1的值", GmpUtil(1, 1, secr).Bytes(), GmpUtil(1, 2, secr).Bytes(), GmpUtil(1, 3, secr).Bytes())
+
+	//节点1的插值多项式
+	interpolate1, err := LagrangeInterpolate(2, a, b, p)
+	if err != nil {
+		return
+	}
+	fmt.Println("节点1拉格朗日插值多项式", interpolate1)
+
+	num13 := interpolate1.GetGmpNum(gmp.NewInt(3))
+	num14 := interpolate1.GetGmpNum(gmp.NewInt(4))
+	num15 := interpolate1.GetGmpNum(gmp.NewInt(5))
+
+	fmt.Println("插值出来的13", num13.Bytes())
+	fmt.Println("插值出来的14", num14.Bytes())
+	fmt.Println("插值出来的15", num15.Bytes())
+	//fmt.Println("计算出来的14", GmpUtil(1, 4, secr))
+	//fmt.Println("计算出来的15", GmpUtil(1, 5, secr))
+	//fmt.Println("计算出来的16", GmpUtil(1, 6, secr))
+
+	b = make([]*gmp.Int, 0)
+	b = append(b, GmpUtil(2, 1, secr))
+	b = append(b, GmpUtil(2, 2, secr))
+	b = append(b, GmpUtil(2, 3, secr))
+
+	//节点2的插值多项式
+	interpolate2, err := LagrangeInterpolate(2, a, b, p)
+	if err != nil {
+		return
+	}
+	fmt.Println("节点2拉格朗日插值多项式", interpolate2)
+
+	num23 := interpolate2.GetGmpNum(gmp.NewInt(3))
+	num24 := interpolate2.GetGmpNum(gmp.NewInt(4))
+	num25 := interpolate2.GetGmpNum(gmp.NewInt(5))
+	fmt.Println("插值出来的23", num23.Bytes())
+	fmt.Println("插值出来的24", num24.Bytes())
+	fmt.Println("插值出来的25", num25.Bytes())
+	//fmt.Println("计算出来的24", GmpUtil(2, 4, secr))
+	//fmt.Println("计算出来的25", GmpUtil(2, 5, secr))
+	//fmt.Println("计算出来的26", GmpUtil(2, 6, secr))
+
+	b = make([]*gmp.Int, 0)
+	b = append(b, GmpUtil(3, 1, secr))
+	b = append(b, GmpUtil(3, 2, secr))
+	b = append(b, GmpUtil(3, 3, secr))
+
+	//节点3的插值多项式
+	interpolate3, err := LagrangeInterpolate(2, a, b, p)
+	if err != nil {
+		return
+	}
+	fmt.Println("节点3拉格朗日插值多项式", interpolate3)
+
+	num33 := interpolate3.GetGmpNum(gmp.NewInt(3))
+	num34 := interpolate3.GetGmpNum(gmp.NewInt(4))
+	num35 := interpolate3.GetGmpNum(gmp.NewInt(5))
+
+	fmt.Println("插值出来的33", num33.Bytes())
+	fmt.Println("插值出来的34", num34.Bytes())
+	fmt.Println("插值出来的35", num35.Bytes())
+
+	//节点3计算出 p(3,3) p(4,3) p(5,3)
+	//节点4计算出 p(3,4) p(4,4) p(5,4)
+	//节点5计算出 p(3,5) p(4,5) p(5,5)
+
+	//节点3 拿到了 13 23 33
+	b = make([]*gmp.Int, 0)
+	b = append(b, num13)
+	b = append(b, num23)
+	b = append(b, num33)
+	//节点3的一半插值多项式
+	interpolate3Half, err := LagrangeInterpolate(1, a, b, p)
+	if err != nil {
+		return
+	}
+	fmt.Println("节点3一半拉格朗日插值多项式", interpolate3Half)
+
+	num33 = interpolate3Half.GetGmpNum(gmp.NewInt(3))
+	num43 := interpolate3Half.GetGmpNum(gmp.NewInt(4))
+	num53 := interpolate3Half.GetGmpNum(gmp.NewInt(5))
+	fmt.Println("插值出来的33", num33)
+	fmt.Println("插值出来的43", num43)
+	fmt.Println("插值出来的53", num53)
+	//fmt.Println("计算出来的44", GmpUtil(4, 4, secr))
+	//fmt.Println("计算出来的54", GmpUtil(5, 4, secr))
+	//fmt.Println("计算出来的64", GmpUtil(6, 4, secr))
+
+	//节点4 拿到了 14 24 34
+	b = make([]*gmp.Int, 0)
+	b = append(b, num14)
+	b = append(b, num24)
+	b = append(b, num34)
+	//节点4的一半插值多项式
+	interpolate4Half, err := LagrangeInterpolate(1, a, b, p)
+	if err != nil {
+		return
+	}
+	fmt.Println("节点4一半拉格朗日插值多项式", interpolate4Half)
+
+	num34 = interpolate4Half.GetGmpNum(gmp.NewInt(3))
+	num44 := interpolate4Half.GetGmpNum(gmp.NewInt(4))
+	num54 := interpolate4Half.GetGmpNum(gmp.NewInt(5))
+
+	fmt.Println("插值出来的34", num34)
+	fmt.Println("插值出来的44", num44)
+	fmt.Println("插值出来的54", num54)
+
+	//节点5 拿到了 15 25 35
+	b = make([]*gmp.Int, 0)
+	b = append(b, num15)
+	b = append(b, num25)
+	b = append(b, num35)
+	//节点5的一半插值多项式
+	interpolate5Half, err := LagrangeInterpolate(1, a, b, p)
+	if err != nil {
+		return
+	}
+	fmt.Println("节点5一半拉格朗日插值多项式", interpolate5Half)
+
+	num35 = interpolate5Half.GetGmpNum(gmp.NewInt(3))
+	num45 := interpolate5Half.GetGmpNum(gmp.NewInt(4))
+	num55 := interpolate5Half.GetGmpNum(gmp.NewInt(5))
+
+	fmt.Println("插值出来的35", num35)
+	fmt.Println("插值出来的45", num45)
+	fmt.Println("插值出来的55", num55)
+
+	//进入份额恢复
+	//节点3拿着  p(3,3) p(3,4) p(3,5)
+	//节点4拿着  p(4,3) p(4,4) p(4,5)
+	//节点5拿着  p(5,3) p(5,4) p(5,5)
+
+	a = make([]*gmp.Int, 0)
+	a = append(a, gmp.NewInt(3))
+	a = append(a, gmp.NewInt(4))
+	a = append(a, gmp.NewInt(5))
+
+	//节点3 拿到了 33 34 35
+	b = make([]*gmp.Int, 0)
+	b = append(b, num33)
+	b = append(b, num34)
+	b = append(b, num35)
+	fmt.Println("节点3收到的33", num33.Bytes())
+	fmt.Println("节点3收到的34", num34.Bytes())
+	fmt.Println("节点3收到的35", num35.Bytes())
+	//节点3的完整插值多项式
+	interpolate3, err = LagrangeInterpolate(2, a, b, p)
+	if err != nil {
+		return
+	}
+	fmt.Println("节点3完整拉格朗日插值多项式", interpolate3)
+
+	//节点4 拿到了 43 44 45
+	b = make([]*gmp.Int, 0)
+	b = append(b, num43)
+	b = append(b, num44)
+	b = append(b, num45)
+	fmt.Println("节点4收到的43", num43.Bytes())
+	fmt.Println("节点4收到的44", num44.Bytes())
+	fmt.Println("节点4收到的45", num45.Bytes())
+	//节点4的完整插值多项式
+	interpolate4, err := LagrangeInterpolate(2, a, b, p)
+	if err != nil {
+		return
+	}
+	fmt.Println("节点4完整拉格朗日插值多项式", interpolate4)
+
+	//节点5 拿到了 53 54 55
+	b = make([]*gmp.Int, 0)
+	b = append(b, num53)
+	b = append(b, num54)
+	b = append(b, num55)
+	fmt.Println("节点5收到的53", num53.Bytes())
+	fmt.Println("节点5收到的54", num54.Bytes())
+	fmt.Println("节点5收到的55", num55.Bytes())
+	//节点6的完整插值多项式
+	interpolate5, err := LagrangeInterpolate(2, a, b, p)
+	if err != nil {
+		return
+	}
+	fmt.Println("节点5完整拉格朗日插值多项式", interpolate5)
+
+	//进行密钥恢复 获得两个节点就够了
+	//这里采用40 50
+	num40 := interpolate4.GetGmpNum(gmp.NewInt(0))
+	num50 := interpolate5.GetGmpNum(gmp.NewInt(0))
+
+	fmt.Println("30", interpolate3.GetGmpNum(gmp.NewInt(0)).Bytes())
+	fmt.Println("40", num40.Bytes())
+	fmt.Println("50", num50.Bytes())
+
+	//计算出最终多项式
+	a = make([]*gmp.Int, 0)
+	a = append(a, gmp.NewInt(4))
+	a = append(a, gmp.NewInt(5))
+
+	b = make([]*gmp.Int, 0)
+	b = append(b, num40)
+	b = append(b, num50)
+
+	interpolateAns, err := LagrangeInterpolate(1, a, b, p)
+	if err != nil {
+		return
+	}
+	fmt.Println("完整拉格朗日插值多项式", interpolateAns)
+
+	secrCal := interpolateAns.GetGmpNum(gmp.NewInt(0))
+	byteCal := secrCal.Bytes()
+	fmt.Println("计算结果是否正确", string(byteCal) == string(i))
+
+}
+
 func GmpUtil(x int, y int, secr crypto.PrivateKey) *gmp.Int {
 
 	i, _ := secr.Bytes()
