@@ -323,23 +323,6 @@ func run(w http.ResponseWriter, r *http.Request) {
 		}
 
 		logger.Logger.Println("收到回执", string(receipt.Ret))
-	} else {
-		selectHostTX, err := GenEmptySelectHostTX(Nonce)
-		Nonce++
-		if err != nil {
-			fmt.Errorf("调用选举合约GenEmptySelectHostTX出错", err)
-			return
-		}
-
-		//调用空选举合约
-
-		receipt, err = sendTransactionWithReceipt(MyGlobal.api, selectHostTX)
-		if err != nil {
-			fmt.Errorf("sendTransactionWithReceipt selectHostTX出错", err)
-			return
-		}
-
-		logger.Logger.Println("收到回执", string(receipt.Ret))
 	}
 
 	if MyNode.IsSele {
@@ -360,25 +343,7 @@ func run(w http.ResponseWriter, r *http.Request) {
 
 		logger.Logger.Println("收到上传keymap回执", string(receipt.Ret))
 
-	} else {
-		mapTX, err := GenEmptyKeyMapTX(Nonce)
-		Nonce++
-		if err != nil {
-			fmt.Errorf("GenEmptyKeyMapTX 出错", err)
-			return
-		}
-
-		//调用空上传合约
-
-		receipt, err = sendTransactionWithReceipt(MyGlobal.api, mapTX)
-		if err != nil {
-			fmt.Errorf("调用空上传合约sendTransactionWithReceipt mapTX出错", err)
-			return
-		}
-
-		logger.Logger.Println("收到上传keymap回执", string(receipt.Ret))
 	}
-
 	//--------------------------------------解密获得临时沟通密钥-------------------------------------------------------
 
 	err = DecryptTempPri(MyGlobal.bxh.BlockExecutor)
@@ -543,6 +508,13 @@ func run(w http.ResponseWriter, r *http.Request) {
 
 	logger.Logger.Println("收到上传恢复完整密钥碎片的交易的回执", string(receipt.Ret))
 
+	deleteTx, err := GenDeleteTx(Nonce)
+	if err != nil {
+		return
+	}
+	Nonce++
+	receipt, err = sendTransactionWithReceipt(MyGlobal.api, deleteTx)
+	logger.Logger.Println("收到删除恢复完整密钥碎片的交易的回执", string(receipt.Ret))
 }
 
 func checkLicense(rep *repo.Repo) error {
@@ -988,6 +960,16 @@ func GenSecretRecoveryTx(nonce uint64, bytes []byte) (pb.Transaction, error) {
 	tx, err := GenBxhTx(key, nonce, constant.SecretShareContractAddr.Address(), "CollectSecretRecoveryShare", pb.Int64(int64(index)), pb.Bytes(bytes))
 	if err != nil {
 		fmt.Println("GenCollect456ShareTx出现错了出现错了", err)
+	}
+	return tx, err
+}
+
+// GenDeleteTx 生成清空信息交易
+func GenDeleteTx(nonce uint64) (pb.Transaction, error) {
+	key := MyNode.PrivKey
+	tx, err := GenBxhTx(key, nonce, constant.SecretShareContractAddr.Address(), "DeleteShare", pb.Int64(1))
+	if err != nil {
+		fmt.Println("GenDeleteTx出现错了出现错了", err)
 	}
 	return tx, err
 }

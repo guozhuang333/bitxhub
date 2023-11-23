@@ -255,6 +255,9 @@ func TestTwoDimensionalLagrange(t *testing.T) {
 		return
 	}
 	fmt.Println("节点4一半拉格朗日插值多项式", interpolate4Half)
+	vec := FromVec(0, 7)
+	interpolate4Half.AddSelf(vec)
+	fmt.Println("偏移后节点4一半拉格朗日插值多项式", interpolate4Half)
 
 	num44 := interpolate4Half.GetGmpNum(gmp.NewInt(4))
 	num54 := interpolate4Half.GetGmpNum(gmp.NewInt(5))
@@ -277,6 +280,9 @@ func TestTwoDimensionalLagrange(t *testing.T) {
 		return
 	}
 	fmt.Println("节点5一半拉格朗日插值多项式", interpolate5Half)
+	vec = FromVec(0, 9)
+	interpolate5Half.AddSelf(vec)
+	fmt.Println("偏移后节点5一半拉格朗日插值多项式", interpolate5Half)
 
 	num45 := interpolate5Half.GetGmpNum(gmp.NewInt(4))
 	num55 := interpolate5Half.GetGmpNum(gmp.NewInt(5))
@@ -293,6 +299,9 @@ func TestTwoDimensionalLagrange(t *testing.T) {
 		return
 	}
 	fmt.Println("节点6一半拉格朗日插值多项式", interpolate6Half)
+	vec = FromVec(0, 113)
+	interpolate6Half.AddSelf(vec)
+	fmt.Println("偏移后节点6一半拉格朗日插值多项式", interpolate6Half)
 
 	num46 := interpolate6Half.GetGmpNum(gmp.NewInt(4))
 	num56 := interpolate6Half.GetGmpNum(gmp.NewInt(5))

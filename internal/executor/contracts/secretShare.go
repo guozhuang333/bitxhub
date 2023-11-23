@@ -193,3 +193,11 @@ func (t *SecretShare) GetRecoverySize() *boltvm.Response {
 func (t *SecretShare) GetRecoveryShare(i int64) *boltvm.Response {
 	return boltvm.Success(t.Recovery[i])
 }
+
+func (t *SecretShare) DeleteShare(i int64) *boltvm.Response {
+	t.Share456 = nil
+	t.HalfShare456 = nil
+	t.Share456 = nil
+	t.Recovery = nil
+	return boltvm.Success([]byte("删除成功"))
+}
